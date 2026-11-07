@@ -14,7 +14,8 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
-    container: swift:6.2
+    # The toolchain the apps build with (Swift 6.4.2).
+    container: swift:6.4.2
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -22,7 +23,8 @@ jobs:
   # The tests on macOS, and the library built for the iOS simulator (what
   # the apps' iPhone and iPad builds take).
   ios-tests:
-    runs-on: macos-15
+    # Xcode 27, as the apps build with.
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
