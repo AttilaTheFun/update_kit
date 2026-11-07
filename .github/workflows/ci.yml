@@ -29,4 +29,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: swift test
-      - run: xcodebuild build -quiet -scheme update_kit-Package -destination 'generic/platform=iOS Simulator'
+      # The scheme Xcode makes for the package, by name as it lists it.
+      - run: |
+          xcodebuild -list -json > "$RUNNER_TEMP/schemes.json"
+          scheme="$(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); s = (d.get("workspace") or d.get("project"))["schemes"]; print(s); p = [n for n in s if n.endswith("-Package")] or [n for n in s if n == "ApplicationUpdates"] or s; print(p[0])' "$RUNNER_TEMP/schemes.json" | tail -1)"
+          echo "Building $scheme for the iOS simulator"
+          xcodebuild build -quiet -scheme "$scheme" -destination 'generic/platform=iOS Simulator'
