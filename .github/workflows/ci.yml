@@ -29,4 +29,4 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: swift test
-      - run: xcodebuild build -quiet -scheme ApplicationUpdates -destination 'generic/platform=iOS Simulator'
+      - run: xcodebuild build -quiet -scheme update_kit-Package -destination 'generic/platform=iOS Simulator'
