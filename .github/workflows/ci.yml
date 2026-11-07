@@ -49,18 +49,18 @@ jobs:
           scheme="$(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); s = (d.get("workspace") or d.get("project"))["schemes"]; print(s); p = [n for n in s if n.endswith("-Package")] or [n for n in s if n == "UpdateKit"] or s; print(p[0])' "$RUNNER_TEMP/schemes.json" | tail -1)"
           echo "Building $scheme for the iOS simulator"
           xcodebuild build -quiet -scheme "$scheme" -destination 'generic/platform=iOS Simulator'
-  # The tests, by hand: on Linux and on macOS, before a release is tagged.
-  verify:
+  # The tests, by hand: on Linux and on macOS, before a version is tagged.
+  verify-linux:
     if: github.event_name == 'workflow_dispatch'
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            container: swift:6.4.2
-          - runner: xcode-27
-            container: ''
-    runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
+    runs-on: ubuntu-latest
+    container: swift:6.4.2
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - run: swift test
+  verify-macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
