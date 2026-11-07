@@ -16,6 +16,8 @@ public actor AppGroupStore {
     /// The app group of Applications and the apps it distributes.
     public static let applicationsAppGroup = "group.com.LoganShire.Applications"
     /// The database's name in the group's container.
+    /// Its name from before the library was UpdateKit, kept: Applications
+    /// and every app share this one file.
     public static let fileName = "ApplicationUpdates.sqlite"
 
     public let fileURL: URL

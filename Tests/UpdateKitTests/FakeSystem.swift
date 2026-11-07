@@ -1,4 +1,4 @@
-import ApplicationUpdates
+import UpdateKit
 import Foundation
 
 /// The system as a test sees it: what was asked of it, in order.

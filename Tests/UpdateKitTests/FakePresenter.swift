@@ -1,4 +1,4 @@
-import ApplicationUpdates
+import UpdateKit
 
 /// Notifications as a test sees them: whether the app is in front, and what
 /// it was told.

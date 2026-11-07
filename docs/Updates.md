@@ -1,4 +1,4 @@
-# Updates: ApplicationUpdates
+# Updates: UpdateKit
 
 Every app Applications distributes tells its user of its own updates, with
 nothing between it and Applications but a database they share. The
@@ -11,9 +11,9 @@ itself it shows a local notification, while it is in the foreground, whose
 Install installs the update. No build is stamped for it and no URL scheme
 is asked about.
 
-The library is `ApplicationUpdates`, this repository's Swift package
-(Package.swift; until 2026-11-07, AttilaTheFun/applications'
-libraries/application_updates). It depends on swift_sql's `SwiftSQL`.
+The library is `UpdateKit`, this repository's Swift package
+(Package.swift; until 0.11.0 the module `ApplicationUpdates`, in
+AttilaTheFun/applications' libraries/application_updates). It depends on swift_sql's `SwiftSQL`.
 Paths below under `app/` are Applications' own, in its repository.
 
 ## The database

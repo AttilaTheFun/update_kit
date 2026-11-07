@@ -1,4 +1,4 @@
-import ApplicationUpdates
+import UpdateKit
 
 /// What an update handler was given.
 actor Given {

@@ -1,4 +1,4 @@
-import ApplicationUpdates
+import UpdateKit
 import XCTest
 
 /// Versions in order as numbers, part by part, then by build.

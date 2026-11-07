@@ -1,10 +1,11 @@
 # Update Kit, for agents
 
-ApplicationUpdates, the library every app Applications distributes links
-to record the build it is and hear of its own updates. docs/Updates.md is
-its design. Moved here from AttilaTheFun/applications (its
-libraries/application_updates) on 2026-11-07, at v0.10.45, so the apps
-fetch it from a public repository.
+UpdateKit, the library every app Applications distributes links to record
+the build it is and hear of its own updates. docs/Updates.md is its design.
+Moved here from AttilaTheFun/applications (the module ApplicationUpdates,
+its libraries/application_updates, at v0.10.45) on 2026-11-07 and renamed
+UpdateKit in 0.11.0, so the apps fetch it from a public repository. The
+shared database keeps its file name, ApplicationUpdates.sqlite.
 
 - **This repository is public.** Never add a person's name (write "the
   owner"), a device or host name, a real IP address or hostname, a private

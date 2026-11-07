@@ -1,4 +1,4 @@
-import ApplicationUpdates
+import UpdateKit
 import Foundation
 import XCTest
 

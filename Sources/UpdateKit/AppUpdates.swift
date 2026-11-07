@@ -36,7 +36,7 @@ public final class AppUpdates {
     private static var delegate: UpdateNotificationDelegate?
     private static var watching: Task<Void, Never>?
     private static var foregroundObserver: (any NSObjectProtocol)?
-    private static let log = Logger(subsystem: "ApplicationUpdates", category: "updates")
+    private static let log = Logger(subsystem: "UpdateKit", category: "updates")
 
     private init() {}
 
