@@ -1,0 +1,37 @@
+# Update Kit's CI: the package's tests on Linux and on Apple's platforms.
+# The job names are the checks main's protection requires (linux,
+# ios-tests). GitHub's hosted runners: the repository is public.
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || format('ci-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    # The toolchain the apps build with (Swift 6.4.2).
+    container: swift:6.4.2
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - run: swift test
+  # The tests on macOS, and the library built for the iOS simulator (what
+  # the apps' iPhone and iPad builds take).
+  ios-tests:
+    # Xcode 27, as the apps build with.
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - run: swift test
+      # The scheme Xcode makes for the package, by name as it lists it.
+      - run: |
+          xcodebuild -list -json > "$RUNNER_TEMP/schemes.json"
+          scheme="$(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); s = (d.get("workspace") or d.get("project"))["schemes"]; print(s); p = [n for n in s if n.endswith("-Package")] or [n for n in s if n == "ApplicationUpdates"] or s; print(p[0])' "$RUNNER_TEMP/schemes.json" | tail -1)"
+          echo "Building $scheme for the iOS simulator"
+          xcodebuild build -quiet -scheme "$scheme" -destination 'generic/platform=iOS Simulator'
