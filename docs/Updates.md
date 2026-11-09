@@ -3,7 +3,8 @@
 Every app Applications distributes tells its user of its own updates, with
 nothing between it and Applications but a database they share. The
 owner's design (2026-10-31): Applications and the apps it distributes are in one
-app group, `group.com.LoganShire.Applications`; Applications writes each
+app group, named in each app's Info.plist (`UpdateKitAppGroup`, below);
+Applications writes each
 app's newest build to a SQLite database in the group's container as it
 syncs with Applications Server, and each app writes the build it is. At
 launch an app looks at its own row, and when the newest build is newer than
@@ -52,7 +53,7 @@ Paths below under `app/` are Applications' own, in its repository.
   processes opening a new database one makes the tables. They only add: an
   app built before a migration reads and writes a database that has it.
 - **A change is announced** with a Darwin notification in the group's name,
-  `group.com.LoganShire.Applications.updates` (`UpdateSignal`), which every
+  `<app group>.updates` (`UpdateSignal`), which every
   process can post and hear: Applications posts it when a newest build
   moved, and an app when it asks for an install. It carries nothing;
   whoever hears it reads the database.
@@ -112,9 +113,25 @@ pushes on an iPhone, NewBuildNotices on a Mac).
 
 ## The app group
 
+The library names no app group and no app (0.12.0, the owner, 2026-11-09):
+each app's Info.plist does, stamped in by its distributor's CI, so a public
+repository never says them.
+
+- `UpdateKitAppGroup` (a string): the app group the app shares with
+  Applications. Without it `AppUpdates.start` does nothing at all, quietly:
+  a build from the public source checks for nothing and writes nothing.
+- `UpdateKitApplicationsBundleIDs` (an array of strings, a Mac's): the
+  bundle ids of Applications to ask to install an update, the first
+  installed one asked.
+
+`UpdateStatus.shared` says what each check found (the build running and any
+newer one), and UpdateKitUI shows it: `UpdateBanner`, a line with Install
+while there is an update, and `UpdateVersionSection`, the version for an
+app's Settings or About form, with Install when there is one.
+
 Every app that reads or writes the database needs
-`com.apple.security.application-groups` with
-`group.com.LoganShire.Applications` in its entitlements, and:
+`com.apple.security.application-groups` with the same group in its
+entitlements (stamped in by the same CI), and:
 
 - **iPhone and iPad**: its provisioning profile must grant the group: its
   App ID given the App Groups capability with the group, and the profile

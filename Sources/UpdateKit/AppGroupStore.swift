@@ -13,8 +13,6 @@ import SwiftSQL
 /// container is held while an iPhone app is suspended, which iOS ends the
 /// app for (0xdead10cc); opening one costs less than the launch it serves.
 public actor AppGroupStore {
-    /// The app group of Applications and the apps it distributes.
-    public static let applicationsAppGroup = "group.com.LoganShire.Applications"
     /// The database's name in the group's container.
     /// Its name from before the library was UpdateKit, kept: Applications
     /// and every app share this one file.
@@ -33,10 +31,12 @@ public actor AppGroupStore {
     }
 
     #if canImport(Darwin)
-    /// The database in an app group's container (Applications' by default).
-    /// Throws when the app has no such container: its entitlements and
+    /// The database in an app group's container: the one given, else the
+    /// one the app's Info.plist names (`UpdateKitInfo`). Throws when there
+    /// is none, or the app has no such container: its entitlements and
     /// profile don't grant the group.
-    public static func appGroup(_ identifier: String = applicationsAppGroup) throws -> AppGroupStore {
+    public static func appGroup(_ given: String? = nil) throws -> AppGroupStore {
+        guard let identifier = given ?? UpdateKitInfo.mainAppGroup else { throw AppGroupStoreError.noAppGroup }
         guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) else {
             throw AppGroupStoreError.noContainer(appGroup: identifier)
         }

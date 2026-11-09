@@ -8,7 +8,7 @@ import Foundation
 public struct UpdateSignal: Sendable {
     public let name: String
 
-    public init(appGroup: String = AppGroupStore.applicationsAppGroup) {
+    public init(appGroup: String) {
         name = appGroup + ".updates"
     }
 
