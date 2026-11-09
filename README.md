@@ -11,6 +11,13 @@ Applications, and to hear of their own updates (docs/Updates.md). Until
 
     import UpdateKit
 
+The app group it shares with Applications, and on a Mac Applications'
+bundle ids, come from the app's Info.plist (`UpdateKitAppGroup`,
+`UpdateKitApplicationsBundleIDs`), which the distributor's CI stamps in;
+without them it does nothing. `UpdateKitUI` (`import UpdateKitUI`) is the
+update UI in SwiftUI: `UpdateBanner` and `UpdateVersionSection`
+(docs/Updates.md, "The app group").
+
 It depends on [swift_sql](https://github.com/AttilaTheFun/swift_sql)'s
 `SwiftSQL`. Tested on Linux and on Apple's platforms.
 
