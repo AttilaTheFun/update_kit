@@ -13,8 +13,10 @@ final class UpdateKitInfoTests: XCTestCase {
         XCTAssertNil(UpdateKitInfo.appGroup(in: nil))
         XCTAssertNil(UpdateKitInfo.appGroup(in: [:]))
         XCTAssertNil(UpdateKitInfo.appGroup(in: [UpdateKitInfo.appGroupKey: ""]))
-        // A build variable the CI never filled in is not a group either.
+        // Not a string, or a build variable no build filled in: not a group.
         XCTAssertNil(UpdateKitInfo.appGroup(in: [UpdateKitInfo.appGroupKey: 42]))
+        XCTAssertNil(UpdateKitInfo.appGroup(in: [UpdateKitInfo.appGroupKey: "$(UPDATE_KIT_APP_GROUP)"]))
+        XCTAssertNil(UpdateKitInfo.appGroup(in: [UpdateKitInfo.appGroupKey: "group.$(GROUP_SUFFIX)"]))
     }
 
     func testTheDistributorsBundleIDs() {
