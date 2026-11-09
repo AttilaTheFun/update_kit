@@ -13,7 +13,7 @@ shared database keeps its file name, ApplicationUpdates.sqlite.
 - **Nothing goes to main but through a pull request.** Agents merge their
   own once CI (linux, ios-tests) is green and the branch is up to date,
   except those touching .github/, which need the owner's review. CI on pull requests and main only builds; the tests run by hand (`run: verify`) before a version is tagged.
-- **Versions are tags,** `vMAJOR.MINOR.PATCH`, which the apps pin
+- **Versions are tags,** `vMAJOR.MINOR.PATCH` (README, "Releasing"), which the apps pin
   `exact:`. A tag is the owner's (or made on the owner's word).
 - **Portable:** `swift test` passes on Linux and on a Mac; Apple's
   frameworks stay behind `canImport`.

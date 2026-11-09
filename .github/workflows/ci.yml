@@ -3,7 +3,14 @@
 # tests run by hand alone (`run: verify`). The job names linux and
 # ios-tests are the checks main's protection requires. GitHub's hosted
 # runners: the repository is public. The toolchains are the apps' own
-# (Swift 6.4.2, Xcode 27).
+# (Swift 6.4.2, Xcode 27). By hand (README, "Releasing"):
+# - verify (`run: verify`): the tests on Linux and on macOS, each one's
+#   output kept, and a proof of them in format 2 (tools/ci/proof.sh),
+#   uploaded as the run's `proof` artifact, which Reviews shows;
+# - release (`run: release`, on main, with `version`): verify, then the
+#   draft "UpdateKit <version>" proposed with that proof as proof.zip
+#   (tools/ci/propose.sh). The owner releases it in Reviews, which makes
+#   the v* tag; the apps pin it by version.
 name: CI
 on:
   pull_request:
@@ -12,10 +19,14 @@ on:
   workflow_dispatch:
     inputs:
       run:
-        description: What to run
+        description: "verify (the tests and their proof), or release (verify, then the draft; on main)"
         type: choice
-        options: [verify]
+        options: [verify, release]
         default: verify
+      version:
+        description: "The version proposed, MAJOR.MINOR.PATCH (release; verify: the proof's, optional)"
+        required: false
+        default: ""
 concurrency:
   group: >-
     ${{ github.event_name == 'pull_request'
@@ -50,7 +61,8 @@ jobs:
           scheme="$(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); s = (d.get("workspace") or d.get("project"))["schemes"]; print(s); p = [n for n in s if n.endswith("-Package")] or [n for n in s if n == "UpdateKit"] or s; print(p[0])' "$RUNNER_TEMP/schemes.json" | tail -1)"
           echo "Building $scheme for the iOS simulator"
           xcodebuild build -quiet -scheme "$scheme" -destination 'generic/platform=iOS Simulator'
-  # The tests, by hand: on Linux and on macOS, before a version is tagged.
+  # The tests, by hand: on Linux and on macOS, before a version is tagged,
+  # each one's output and exit status kept for the proof.
   verify-linux:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -58,11 +70,94 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      - run: swift test
+      - name: The tests on Linux
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tests"
+          set +e
+          swift test 2>&1 | tee "$RUNNER_TEMP/tests/test.txt"
+          status=${PIPESTATUS[0]}
+          echo "$status" > "$RUNNER_TEMP/tests/status"
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tests-linux
+          path: ${{ runner.temp }}/tests
+          retention-days: 7
   verify-macos:
     if: github.event_name == 'workflow_dispatch'
     runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      - run: swift test
+      - name: The tests on macOS
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tests"
+          set +e
+          swift test 2>&1 | tee "$RUNNER_TEMP/tests/test.txt"
+          status=${PIPESTATUS[0]}
+          echo "$status" > "$RUNNER_TEMP/tests/status"
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tests-macos
+          path: ${{ runner.temp }}/tests
+          retention-days: 7
+  # The proof of both, uploaded as `proof` (flat: proof.json at its top),
+  # kept 90 days as an app's. It fails as the tests did, after the upload.
+  proof:
+    needs: [verify-linux, verify-macos]
+    if: always() && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: tests-linux
+          path: ${{ runner.temp }}/linux
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: tests-macos
+          path: ${{ runner.temp }}/macos
+      # Untrusted text reaches the shell through env, never ${{ }} in run.
+      - name: The proof
+        env:
+          VERSION: ${{ inputs.version }}
+        run: exec tools/ci/proof.sh "$RUNNER_TEMP/proof" "$RUNNER_TEMP/linux" "$RUNNER_TEMP/macos" "$VERSION"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proof
+          path: ${{ runner.temp }}/proof
+          retention-days: 90
+          if-no-files-found: error
+  # A release proposed (`run: release`, on main): the proof, zipped, on the
+  # draft. Never published here.
+  release:
+    needs: proof
+    if: github.event_name == 'workflow_dispatch' && inputs.run == 'release' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: proof
+          path: ${{ runner.temp }}/proof
+      - name: proof.zip
+        run: cd "$RUNNER_TEMP/proof" && python3 -I -m zipfile -c "$RUNNER_TEMP/proof.zip" proof.json logs
+      - name: The draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: exec tools/ci/propose.sh "$VERSION" "$RUNNER_TEMP/proof.zip"
