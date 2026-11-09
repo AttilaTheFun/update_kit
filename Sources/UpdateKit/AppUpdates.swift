@@ -13,7 +13,7 @@ import AppKit
 ///     AppUpdates.start()
 ///
 /// The app writes the build it is to the database it shares with
-/// Applications (in the group.com.LoganShire.Applications container), and
+/// Applications (in the app group its Info.plist names, `UpdateKitInfo`), and
 /// when Applications has said of a newer build, tells the user with a local
 /// notification while the app is in the foreground: at launch, each time
 /// it comes forward, and when Applications syncs a newer one while it runs.
@@ -22,11 +22,10 @@ import AppKit
 /// first: `AppUpdates.register(updateHandler:)`.
 @MainActor
 public final class AppUpdates {
-    /// Applications on the Mac: its one bundle id, the iPhone's too (since
-    /// 2026-11-01), then the Mac's two before it, for a Mac that still has
-    /// one of those.
-    public static let macApplicationsBundleIDs = ["com.LoganShire.Applications", "com.LoganShire.Applications.Mac",
-                                                  "com.LoganShire.Applications.Mac.Beta"]
+    /// The distributor on the Mac, as the app's Info.plist names it
+    /// (`UpdateKitInfo.applicationsBundleIDsKey`): whichever is installed is
+    /// asked to install an update.
+    public static var macApplicationsBundleIDs: [String] { UpdateKitInfo.mainApplicationsBundleIDs }
 
     private static var handler: UpdateHandler?
     private static var store: AppGroupStore?
@@ -50,10 +49,20 @@ public final class AppUpdates {
     /// Starts at launch: writes the app's build and checks for a newer one
     /// now, when it comes to the foreground and when Applications syncs.
     /// `tellsOfUpdates: false` only writes the build (Applications itself,
-    /// which tells of its own updates). An app without the group's
-    /// container (its entitlements, its profile) logs why and does nothing.
-    public static func start(appGroup: String = AppGroupStore.applicationsAppGroup, tellsOfUpdates: Bool = true) {
+    /// which tells of its own updates). The app group is the one given,
+    /// else the one the app's Info.plist names (`UpdateKitInfo`); with
+    /// neither, it does nothing at all: a build from the public source,
+    /// whose distributor's CI didn't stamp one in. An app without the
+    /// group's container (its entitlements, its profile) logs why and does
+    /// nothing. `UpdateStatus.shared` says what each check found, for the
+    /// app's own update UI (UpdateKitUI).
+    public static func start(appGroup given: String? = nil, tellsOfUpdates: Bool = true) {
         guard checker == nil, let app = InstalledApp.main() else { return }
+        UpdateStatus.shared.installed = app
+        guard let appGroup = given ?? UpdateKitInfo.mainAppGroup else {
+            log.debug("No app group in the Info.plist (\(UpdateKitInfo.appGroupKey, privacy: .public)): no updates")
+            return
+        }
         let store: AppGroupStore
         do {
             store = try AppGroupStore.appGroup(appGroup)
@@ -87,7 +96,8 @@ public final class AppUpdates {
     public static func check() async {
         guard let checker else { return }
         do {
-            try await checker.check()
+            let found = try await checker.check()
+            UpdateStatus.shared.found(found)
         } catch {
             log.error("The update check failed: \(String(describing: error), privacy: .public)")
         }
