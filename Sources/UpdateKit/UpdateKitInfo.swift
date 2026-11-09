@@ -18,9 +18,11 @@ public enum UpdateKitInfo {
     /// asked to install an update).
     public static let applicationsBundleIDsKey = "UpdateKitApplicationsBundleIDs"
 
-    /// The app group an Info.plist names; nil when it names none.
+    /// The app group an Info.plist names; nil when it names none, or only a
+    /// build variable no build filled in (`$(UPDATE_KIT_APP_GROUP)`).
     public static func appGroup(in info: [String: Any]?) -> String? {
-        guard let group = (info?[appGroupKey] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !group.isEmpty else {
+        guard let group = (info?[appGroupKey] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !group.isEmpty,
+              !group.contains("$(") else {
             return nil
         }
         return group
