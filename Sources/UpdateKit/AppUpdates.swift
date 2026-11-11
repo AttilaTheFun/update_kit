@@ -28,12 +28,16 @@ public final class AppUpdates {
     public static var macApplicationsBundleIDs: [String] { UpdateKitInfo.mainApplicationsBundleIDs }
 
     private static var handler: UpdateHandler?
+    private static var autoUpdateHandler: AutoUpdateHandler?
+    private static var autoUpdateInstaller: AutoUpdateInstaller?
+    private static var responder: OfferResponder?
     private static var store: AppGroupStore?
     private static var signal: UpdateSignal?
     private static var checker: UpdateChecker?
     /// Kept: the notification center holds its delegate weakly.
     private static var delegate: UpdateNotificationDelegate?
     private static var watching: Task<Void, Never>?
+    private static var offersWatch: Task<Void, Never>?
     private static var foregroundObserver: (any NSObjectProtocol)?
     private static let log = Logger(subsystem: "UpdateKit", category: "updates")
 
@@ -44,6 +48,47 @@ public final class AppUpdates {
     /// Applications and quitting. Register before `start`.
     public static func register(updateHandler: @escaping UpdateHandler) {
         handler = updateHandler
+    }
+
+    // MARK: Updating automatically (a Mac)
+
+    /// The app's answer to Applications' offers of its newest build, when
+    /// its "Update automatically" is on (docs/Updates.md): go ahead (the
+    /// default, without a handler: the app quits at once and Applications
+    /// puts the build in place and opens it), defer until
+    /// `readyToUpdate()`, decline, or install it itself. Register before
+    /// `start`.
+    public static func register(autoUpdate: @escaping AutoUpdateHandler) {
+        autoUpdateHandler = autoUpdate
+    }
+
+    /// An app that answers `.installMyself`: called with the offer once its
+    /// `bundle` (the verified, unpacked app, in the group's container) is
+    /// ready, or at the next launch, to install when it suits. It calls
+    /// `installing()` just before it relaunches, or `installFailed(_:)`.
+    /// Register before `start`.
+    public static func register(install: @escaping AutoUpdateInstaller) {
+        autoUpdateInstaller = install
+    }
+
+    /// After `.deferUntilReady`: the app is ready, so the update goes ahead
+    /// now (the app asks Applications and quits).
+    public static func readyToUpdate() async {
+        do { try await responder?.readyToUpdate() } catch { log.error("Not updated: \(String(describing: error), privacy: .public)") }
+    }
+
+    /// After `.installMyself`: the app is installing the bundle it was given
+    /// and is about to relaunch. Its next launch says whether it worked: the
+    /// version offered running is installed; the older one, failed.
+    public static func installing() async {
+        do { try await responder?.installing() } catch { log.error("Not marked installing: \(String(describing: error), privacy: .public)") }
+    }
+
+    /// After `.installMyself`: the app's install failed, saying why (it
+    /// refused the bundle; at a launch, its new build didn't stay up and the
+    /// old one was put back). Applications shows it on the app's page.
+    public static func installFailed(_ note: String) async {
+        do { try await responder?.installFailed(note) } catch { log.error("Not marked failed: \(String(describing: error), privacy: .public)") }
     }
 
     /// Starts at launch: writes the app's build and checks for a newer one
@@ -76,6 +121,26 @@ public final class AppUpdates {
         Self.signal = signal
         Self.checker = checker
         Task { await check() }
+        // Offers are a Mac's: answered at launch and on each signal, by
+        // every app (Applications too, of its own updates).
+        #if os(macOS)
+        let responder = OfferResponder(store: store, app: app,
+                                       installer: UpdateInstaller(store: store,
+                                                                  system: AppleUpdateSystem(signal: signal,
+                                                                                            applicationsBundleIDs: macApplicationsBundleIDs),
+                                                                  handler: handler, requester: app.bundleID),
+                                       system: AppleUpdateSystem(signal: signal, applicationsBundleIDs: macApplicationsBundleIDs),
+                                       handler: autoUpdateHandler, installHook: autoUpdateInstaller)
+        Self.responder = responder
+        Task {
+            do { try await responder.launched() } catch { log.error("The offer was not looked at: \(String(describing: error), privacy: .public)") }
+        }
+        offersWatch = Task {
+            for await _ in signal.changes() {
+                do { try await responder.look() } catch { log.error("The offer was not looked at: \(String(describing: error), privacy: .public)") }
+            }
+        }
+        #endif
         guard tellsOfUpdates else { return }
         let center = UNUserNotificationCenter.current()
         if center.delegate == nil {

@@ -135,6 +135,112 @@ public actor AppGroupStore {
         }
     }
 
+    // MARK: Updating automatically (the Mac)
+
+    /// Turns an app's "Update automatically" on or off: shared by every
+    /// Applications (the app, Shireworks' tab).
+    public func setAutoUpdate(_ enabled: Bool, bundleID: String) throws {
+        let time = now().timeIntervalSince1970
+        try withConnection { connection in
+            try connection.run("""
+                INSERT INTO auto_update (bundle_id, enabled, updated_at) VALUES (?1, ?2, ?3)
+                ON CONFLICT (bundle_id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at
+                """, bundleID, enabled ? 1 : 0, time)
+        }
+    }
+
+    /// The apps whose "Update automatically" is on (off for any not here).
+    public func autoUpdating() throws -> Set<String> {
+        try withConnection { connection in
+            Set(try connection.query("SELECT bundle_id FROM auto_update WHERE enabled = 1") { $0.text(0) ?? "" })
+        }
+    }
+
+    /// Says that this app answers offers (UpdateKit 0.13 and later), at its
+    /// launch: Applications then asks it, while it runs, rather than waiting
+    /// for it to quit.
+    public func recordAnswersOffers(bundleID: String) throws {
+        let time = now().timeIntervalSince1970
+        try withConnection { connection in
+            try connection.run("""
+                INSERT INTO apps (bundle_id, answers_offers, updated_at) VALUES (?1, 1, ?2)
+                ON CONFLICT (bundle_id) DO UPDATE SET answers_offers = 1 WHERE answers_offers IS NOT 1
+                """, bundleID, time)
+        }
+    }
+
+    /// Whether an app has said it answers offers.
+    public func answersOffers(bundleID: String) throws -> Bool {
+        try withConnection { connection in
+            try connection.query("SELECT answers_offers FROM apps WHERE bundle_id = ?1", bundleID) { $0.int(0) }.first == 1
+        }
+    }
+
+    /// Makes an offer, unless there is one already of this build or a newer
+    /// one, or the app declined this build: the offer made, or nil. In one
+    /// transaction that takes the write lock first, so of two Applications
+    /// offering at once one makes it, and carries it out.
+    public func makeOffer(bundleID: String, version: String, build: String?, offeredBy: String) throws -> UpdateOffer? {
+        let time = now()
+        let offered = AppVersion(version, build: build)
+        return try withConnection { connection in
+            try connection.transaction(.immediate) { connection in
+                if let existing = try Self.offer(bundleID, connection) {
+                    // A settled offer of an older build is replaced; any other
+                    // of an older build too, once that build is overtaken (a
+                    // deferred one is offered again as the newer build).
+                    // One of this build or newer stands.
+                    guard existing.appVersion < offered else { return nil }
+                    guard [.offered, .deferred, .declined, .installed, .failed].contains(existing.state) else { return nil }
+                }
+                let offer = UpdateOffer(bundleID: bundleID, version: version, build: build, offeredBy: offeredBy, offeredAt: time)
+                try connection.run("""
+                    INSERT OR REPLACE INTO offers (bundle_id, version, build, state, note, bundle_path, offered_by, offered_at, updated_at)
+                    VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, ?6, ?6)
+                    """, bundleID, version, build, offer.state.rawValue, offeredBy, time.timeIntervalSince1970)
+                return offer
+            }
+        }
+    }
+
+    /// An app's offer, or nil.
+    public func offer(bundleID: String) throws -> UpdateOffer? {
+        try withConnection { try Self.offer(bundleID, $0) }
+    }
+
+    /// Every offer, by bundle id.
+    public func offers() throws -> [UpdateOffer] {
+        try withConnection { connection in
+            try connection.query("SELECT \(Self.offerColumns) FROM offers ORDER BY bundle_id", row: Self.offer)
+        }
+    }
+
+    /// Moves an offer on, if it is still of this build and in one of the
+    /// states given (another process may have moved it first): whether it
+    /// did. `note` and `bundle` are written as given (nil clears them).
+    @discardableResult
+    public func moveOffer(bundleID: String, version: String, build: String?, from states: Set<UpdateOffer.State>,
+                          to state: UpdateOffer.State, note: String? = nil, bundle: URL? = nil) throws -> Bool {
+        let time = now().timeIntervalSince1970
+        return try withConnection { connection in
+            try connection.transaction(.immediate) { connection in
+                guard let existing = try Self.offer(bundleID, connection), existing.version == version, existing.build == build,
+                      states.contains(existing.state) else { return false }
+                try connection.run("""
+                    UPDATE offers SET state = ?2, note = ?3, bundle_path = ?4, updated_at = ?5 WHERE bundle_id = ?1
+                    """, bundleID, state.rawValue, note, bundle?.path, time)
+                return true
+            }
+        }
+    }
+
+    /// Forgets an app's offer.
+    public func removeOffer(bundleID: String) throws {
+        try withConnection { connection in
+            try connection.run("DELETE FROM offers WHERE bundle_id = ?1", bundleID)
+        }
+    }
+
     // MARK: The connection
 
     /// Opens the database for `body` and closes it after; the tables made
@@ -159,6 +265,19 @@ public actor AppGroupStore {
         AppRecord(bundleID: row.text(0) ?? "", latestVersion: row.text(1), latestBuild: row.text(2),
                   installURL: row.text(3).flatMap(URL.init(string:)), installedVersion: row.text(4), installedBuild: row.text(5),
                   installedVariant: row.text(7), updatedAt: Date(timeIntervalSince1970: row.double(6)))
+    }
+
+    private static let offerColumns = "bundle_id, version, build, state, note, bundle_path, offered_by, offered_at, updated_at"
+
+    private static func offer(_ bundleID: String, _ connection: Connection) throws -> UpdateOffer? {
+        try connection.query("SELECT \(offerColumns) FROM offers WHERE bundle_id = ?1", bundleID, row: offer).first
+    }
+
+    private static func offer(_ row: Row) -> UpdateOffer {
+        UpdateOffer(bundleID: row.text(0) ?? "", version: row.text(1) ?? "", build: row.text(2),
+                    state: UpdateOffer.State(rawValue: row.text(3) ?? "") ?? .offered, note: row.text(4),
+                    bundle: row.text(5).map { URL(fileURLWithPath: $0) }, offeredBy: row.text(6) ?? "",
+                    offeredAt: Date(timeIntervalSince1970: row.double(7)), updatedAt: Date(timeIntervalSince1970: row.double(8)))
     }
 
     private static func requests(_ connection: Connection) throws -> [InstallRequest] {

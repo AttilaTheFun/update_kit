@@ -111,6 +111,69 @@ categories after `start`, includes `NotificationPresenter.notificationCategory`.
 it writes its own build, and tells of its updates as it always has (its
 pushes on an iPhone, NewBuildNotices on a Mac).
 
+## Updating automatically (a Mac)
+
+The owner, 2026-11-11: on a Mac, each app's page in Applications (and in
+Shireworks' Applications tab) has **Update automatically**, off by default.
+With it on, Applications installs the app's newest build as it comes, with
+no click, and the app has its say through UpdateKit 0.13 and later. Phones
+stay manual: iOS lets nothing force an install.
+
+**In the database** (migration 3): `auto_update` holds each app's setting,
+shared by every Applications; `apps.answers_offers` says an app answers
+offers (written at each launch by 0.13 and later); `offers` holds one offer
+a bundle id (`UpdateOffer`), made by Applications when a newer build of an
+app with the setting on comes. Of two Applications offering at once, one
+makes it (`makeOffer`, in one transaction that takes the write lock), and
+that one carries it out.
+
+**Applications, with an offer:**
+
+- the app **isn't running**: it installs the build at once (and doesn't
+  open it);
+- it **runs, and answers offers**: it waits for the answer, below;
+- it **runs, and doesn't** (a build from before 0.13): it is never quit;
+  the build is installed once the app has quit.
+
+**The app's answer** (`UpdateDecision`), from its handler, asked once an
+offer, on the main actor; without one, go ahead:
+
+    AppUpdates.register(autoUpdate: { offer in   // before start
+        .goAhead                                 // or .deferUntilReady, .decline(reason:), .installMyself
+    })
+
+- **`goAhead`**: the app asks Applications to install and quits at once, as
+  the banner's Install does (the owner: "straight away. they have to
+  implement the handler if they want control over this"). Applications puts
+  the build in place and opens it again.
+- **`deferUntilReady`**: nothing, until the app calls
+  `AppUpdates.readyToUpdate()` (when the user agrees, or its work is done):
+  then as go ahead. A newer build offered meanwhile replaces the offer.
+- **`decline(reason:)`**: that build is skipped (the reason shown on the
+  app's page); the next newer one is offered.
+- **`installMyself`**: the app installs it itself (Visor, which hosts
+  agents that a quit would end). Applications downloads the build, checks
+  it, and unpacks the app into the group's container, then hands it over
+  (`handedOver`, the offer's `bundle`); it neither quits nor replaces the
+  app. The app's install hook is called with the offer, then or at the
+  app's next launch:
+
+      AppUpdates.register(install: { offer in    // before start
+          // offer.bundle: the verified .app; install when it suits:
+          await AppUpdates.installing()           // just before relaunching
+          relaunch(from: offer.bundle!)           // Visor: POST /api/restart
+      })
+
+  The process that installs isn't the one that can say it worked, so the
+  next launch does: the build offered running, **installed**; the older one
+  after `installing()`, **failed** (and the app adds why, at that launch,
+  with `AppUpdates.installFailed(_:)`). `installFailed(_:)` also says a
+  refusal before relaunching. Applications deletes the bundle once the
+  offer is installed or failed.
+
+`OfferResponder` is the app's side (portable, tested on Linux);
+`AppUpdates.start()` runs it on a Mac at launch and at each signal.
+
 ## The app group
 
 The library names no app group and no app (0.12.0, the owner, 2026-11-09):

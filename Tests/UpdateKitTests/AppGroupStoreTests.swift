@@ -23,7 +23,7 @@ final class AppGroupStoreTests: XCTestCase {
         XCTAssertEqual(records, [])
         let database = try Database(path: temporary.file.path)
         XCTAssertEqual(try database.query("PRAGMA journal_mode") { $0.text(0) }, ["wal"])
-        XCTAssertEqual(try database.query("PRAGMA user_version") { $0.int(0) }, [2])
+        XCTAssertEqual(try database.query("PRAGMA user_version") { $0.int(0) }, [3])
     }
 
     func testTheInstalledBuildIsWrittenOnlyWhenItDiffers() async throws {
@@ -129,13 +129,13 @@ final class AppGroupStoreTests: XCTestCase {
     func testANewerDatabaseIsUsedAsItIs() async throws {
         try await store().recordInstalled(bundleID: "com.example.Visor", version: "0.39.2", build: "1")
         let database = try Database(path: temporary.file.path)
-        try database.execute("ALTER TABLE apps ADD COLUMN later TEXT; PRAGMA user_version = 3")
+        try database.execute("ALTER TABLE apps ADD COLUMN later TEXT; PRAGMA user_version = 4")
         database.close()
         let other = store()
         try await other.setLatest([LatestBuild(bundleID: "com.example.Visor", version: "0.40.1", build: "1", installURL: nil)])
         let record = try await other.record(bundleID: "com.example.Visor")
         XCTAssertEqual(record?.latestVersion, "0.40.1")
-        XCTAssertEqual(try Database(path: temporary.file.path).query("PRAGMA user_version") { $0.int(0) }, [3])
+        XCTAssertEqual(try Database(path: temporary.file.path).query("PRAGMA user_version") { $0.int(0) }, [4])
     }
 
     func testAnInstallRequestIsOneABundleAndTakenOnce() async throws {
