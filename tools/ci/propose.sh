@@ -7,10 +7,15 @@
 # "Releasing"). One release a minor line: <version> is MAJOR.MINOR.PATCH,
 # and none published may be on its line already.
 #
-#   GH_TOKEN=… tools/ci/propose.sh <version> <proof.zip>
+#   GH_TOKEN=… tools/ci/propose.sh <version> <proof.zip> [<proof-diff.json>]
+#
+# proof-diff.json, the proof's comparison with the prior release's (verify
+# made it; AttilaTheFun/reviews' docs/PROOF_FORMAT.md), goes beside
+# proof.zip when it is there.
 set -euo pipefail
 version="${1:?usage: tools/ci/propose.sh <version> <proof.zip>}"
-zip="${2:?usage: tools/ci/propose.sh <version> <proof.zip>}"
+zip="${2:?usage: tools/ci/propose.sh <version> <proof.zip> [<proof-diff.json>]}"
+diff="${3:-}"
 repository="${GITHUB_REPOSITORY:-AttilaTheFun/update_kit}"
 commit="$(git rev-parse HEAD)"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "propose: \"$version\" is not MAJOR.MINOR.PATCH" >&2; exit 2; }
@@ -37,6 +42,8 @@ notes="$(mktemp)"
         git log --format='- %s' "$last..HEAD"
     fi
 } > "$notes"
+assets=("$zip")
+if [ -n "$diff" ] && [ -f "$diff" ]; then assets+=("$diff"); fi
 gh release create "v$version" --repo "$repository" --draft --target "$commit" --title "UpdateKit $version" \
-    --notes-file "$notes" "$zip"
+    --notes-file "$notes" "${assets[@]}"
 echo "propose: draft v$version made, a release of $commit"
