@@ -91,7 +91,7 @@ Opening the notification, or its Install, installs the update
   at once if it runs (it listens for the Darwin notification), installs the
   newest build with its own install path (MacInstall: checked, the old copy
   to the Trash) and opens the app again (app/Sources/macOS/InstallRequests.swift).
-- **Mac, apps that update themselves**: OS Server, Visor Runner and
+- **Mac, apps that update themselves**: Shireworks, Visor Runner and
   Applications Server, which must stop their work in order, register a
   handler before `start`, and it is called instead:
 
