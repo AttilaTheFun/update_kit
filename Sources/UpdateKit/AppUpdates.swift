@@ -43,7 +43,7 @@ public final class AppUpdates {
 
     private init() {}
 
-    /// A Mac app's own install of its updates (OS Server, Visor Runner,
+    /// A Mac app's own install of its updates (Shireworks, Visor Runner,
     /// Applications Server): called with the update in place of asking
     /// Applications and quitting. Register before `start`.
     public static func register(updateHandler: @escaping UpdateHandler) {
