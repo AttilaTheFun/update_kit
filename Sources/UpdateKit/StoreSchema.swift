@@ -34,6 +34,28 @@ enum StoreSchema {
         """
         ALTER TABLE apps ADD COLUMN installed_variant TEXT;
         """,
+        // 3: updating automatically on a Mac (docs/Updates.md): which apps
+        // answer offers (UpdateKit 0.13 and later, written at launch), each
+        // app's "Update automatically", and the offers, one a bundle id.
+        """
+        ALTER TABLE apps ADD COLUMN answers_offers INTEGER;
+        CREATE TABLE auto_update (
+            bundle_id TEXT PRIMARY KEY NOT NULL,
+            enabled INTEGER NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE TABLE offers (
+            bundle_id TEXT PRIMARY KEY NOT NULL,
+            version TEXT NOT NULL,
+            build TEXT,
+            state TEXT NOT NULL,
+            note TEXT,
+            bundle_path TEXT,
+            offered_by TEXT NOT NULL,
+            offered_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        """,
     ]
 
     /// Write-ahead logging, so one app reads while another writes (the mode
