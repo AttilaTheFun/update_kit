@@ -167,8 +167,12 @@ offer, on the main actor; without one, go ahead:
   The process that installs isn't the one that can say it worked, so the
   next launch does: the build offered running, **installed**; the older one
   after `installing()`, **failed** (and the app adds why, at that launch,
-  with `AppUpdates.installFailed(_:)`). `installFailed(_:)` also says a
-  refusal before relaunching. Applications deletes the bundle once the
+  with `AppUpdates.installFailed(_:)`). The old build back after the new one
+  had started (and been counted installed: Visor's relauncher puts it back
+  within two minutes) is a failure too. `installFailed(_:)` also says a
+  refusal before relaunching, and an install that never relaunches. The
+  install hook is called once an offer in a process, however long the app
+  waits. Applications deletes the bundle once the
   offer is installed or failed.
 
 `OfferResponder` is the app's side (portable, tested on Linux);

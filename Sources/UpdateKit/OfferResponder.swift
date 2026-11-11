@@ -18,6 +18,9 @@ public final class OfferResponder {
     /// The offer being answered or installed, so a signal heard meanwhile
     /// doesn't ask the handler twice.
     private var busy: Set<String> = []
+    /// The offers (version and build) whose install hook this process has
+    /// called: once each, however long the app waits before installing.
+    private var hooked: Set<String> = []
 
     public init(store: AppGroupStore, app: InstalledApp, installer: UpdateInstaller, system: any UpdateSystem,
                 handler: AutoUpdateHandler?, installHook: AutoUpdateInstaller?) {
@@ -62,7 +65,7 @@ public final class OfferResponder {
             await system.databaseChanged()
             if decision == .goAhead { try await goAhead(offer) }
         case .handedOver:
-            guard let installHook else { return }
+            guard let installHook, hooked.insert("\(offer.version) \(offer.build ?? "")").inserted else { return }
             await installHook(offer)
         default:
             return
@@ -93,7 +96,7 @@ public final class OfferResponder {
     public func installFailed(_ note: String) async throws {
         guard let offer = try await store.offer(bundleID: app.bundleID),
               try await store.moveOffer(bundleID: offer.bundleID, version: offer.version, build: offer.build,
-                                        from: [.installMyself, .handedOver, .installing, .failed], to: .failed, note: note,
+                                        from: [.installMyself, .handedOver, .installing, .installed, .failed], to: .failed, note: note,
                                         bundle: offer.bundle) else { return }
         await system.databaseChanged()
     }
@@ -102,8 +105,18 @@ public final class OfferResponder {
 
     /// What a launch says of an offer under way: the build running is the
     /// one offered (or newer), so it's installed; after the app's own
-    /// install the older one is running, so it failed.
+    /// install the older one is running, so it failed. That's so even once
+    /// it was installed: an app that installs itself (its offer had a
+    /// bundle) may put the old build back after the new one started (Visor's
+    /// relauncher, within two minutes).
     func settle(_ offer: UpdateOffer) async throws {
+        if offer.state == .installed, offer.bundle != nil, app.appVersion < offer.appVersion {
+            try await store.moveOffer(bundleID: offer.bundleID, version: offer.version, build: offer.build, from: [.installed],
+                                      to: .failed, note: "\(app.appVersion) is running again after \(offer.appVersion) was installed",
+                                      bundle: offer.bundle)
+            await system.databaseChanged()
+            return
+        }
         let states: Set<UpdateOffer.State> = [.goAhead, .handedOver, .installing]
         guard states.contains(offer.state) else { return }
         if app.appVersion >= offer.appVersion {

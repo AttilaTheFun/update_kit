@@ -201,4 +201,53 @@ final class AutoUpdateTests: XCTestCase {
         let offer = try await store.offer(bundleID: visor)
         XCTAssertEqual(offer?.state, .installed)
     }
+
+    /// Visor's relauncher can put the old build back after the new one has
+    /// started (and settled the offer as installed): the old one's launch
+    /// makes it a failure, and its note can follow.
+    func testTheOldBuildBackAfterTheNewOneStartedIsAFailure() async throws {
+        let store = store(), system = FakeSystem()
+        _ = try await store.makeOffer(bundleID: visor, version: "0.40.1", build: "1", offeredBy: "com.example.Applications")
+        let bundle = URL(fileURLWithPath: "/tmp/Offers/Visor.app")
+        try await store.moveOffer(bundleID: visor, version: "0.40.1", build: "1", from: [.offered], to: .installing, bundle: bundle)
+        try await responder(store, running: "0.40.1", system: system).launched()
+        var offer = try await store.offer(bundleID: visor)
+        XCTAssertEqual(offer?.state, .installed)
+        let back = responder(store, system: system)
+        try await back.launched()
+        offer = try await store.offer(bundleID: visor)
+        XCTAssertEqual(offer?.state, .failed)
+        XCTAssertEqual(offer?.note, "0.39.2 is running again after 0.40.1 was installed")
+        try await back.installFailed("Visor Server 0.40.1 did not stay up, so 0.39.2 was put back")
+        offer = try await store.offer(bundleID: visor)
+        XCTAssertEqual(offer?.note, "Visor Server 0.40.1 did not stay up, so 0.39.2 was put back")
+        XCTAssertEqual(offer?.bundle, bundle, "kept for Applications to delete")
+    }
+
+    /// An app installed by Applications (no bundle handed over) running its
+    /// older build later is not a failure of the offer.
+    func testAnOlderBuildLaterIsNoFailureOfAnInstallByApplications() async throws {
+        let store = store(), system = FakeSystem()
+        _ = try await store.makeOffer(bundleID: visor, version: "0.40.1", build: "1", offeredBy: "com.example.Applications")
+        try await store.moveOffer(bundleID: visor, version: "0.40.1", build: "1", from: [.offered], to: .installed)
+        try await responder(store, system: system).launched()
+        let offer = try await store.offer(bundleID: visor)
+        XCTAssertEqual(offer?.state, .installed)
+    }
+
+    /// The install hook is called once an offer in a process, however long
+    /// the app waits and however many signals come.
+    func testTheInstallHookIsCalledOnceAnOffer() async throws {
+        let store = store(), system = FakeSystem()
+        _ = try await store.makeOffer(bundleID: visor, version: "0.40.1", build: "1", offeredBy: "com.example.Applications")
+        try await store.moveOffer(bundleID: visor, version: "0.40.1", build: "1", from: [.offered], to: .handedOver,
+                                  bundle: URL(fileURLWithPath: "/tmp/Offers/Visor.app"))
+        var calls = 0
+        let responder = responder(store, system: system, installHook: { _ in calls += 1 })
+        try await responder.launched()
+        try await responder.look()
+        try await responder.look()
+        XCTAssertEqual(calls, 1)
+    }
 }
+
