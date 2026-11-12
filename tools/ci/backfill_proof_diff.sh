@@ -11,6 +11,8 @@
 # Helper's, or a workflow_dispatch job's), never one copied by hand.
 # --dry-run: each manifest made and its counts said, nothing uploaded.
 set -euo pipefail
+# gh on a runner whose image may lack it (gh_ready.sh, beside this file).
+. "$(dirname "$0")/gh_ready.sh"
 repository="${1:?usage: tools/ci/backfill_proof_diff.sh <owner/repo> [--dry-run]}"
 shift
 [ -n "${GH_TOKEN:-}" ] || { echo "backfill_proof_diff: GH_TOKEN is the repository's token" >&2; exit 1; }
