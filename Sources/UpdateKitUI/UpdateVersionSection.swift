@@ -1,4 +1,4 @@
-#if canImport(SwiftUI) && canImport(UserNotifications)
+#if canImport(SwiftUI)
 import SwiftUI
 import UpdateKit
 
@@ -23,7 +23,7 @@ public struct UpdateVersionSection: View {
                 Button(installing ? "Installing…" : "Install Version \(update.latest.description)") {
                     installing = true
                     Task {
-                        await AppUpdates.install(update)
+                        await Self.install(update)
                         installing = false
                     }
                 }
@@ -37,6 +37,14 @@ public struct UpdateVersionSection: View {
         } header: {
             Text(title)
         }
+    }
+
+    /// Where updates are installed (Apple's platforms); elsewhere (Isomer's
+    /// hosts) nothing is ever available, so nothing is offered.
+    private static func install(_ update: AvailableUpdate) async {
+        #if canImport(UserNotifications)
+        await AppUpdates.install(update)
+        #endif
     }
 }
 #endif

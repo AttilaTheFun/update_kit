@@ -42,6 +42,34 @@ public actor AppGroupStore {
         }
         return AppGroupStore(fileURL: container.appendingPathComponent(fileName))
     }
+    #else
+    /// The variable naming the folder that stands for the app group's
+    /// container where there are no app groups (Linux, Windows): a test or a
+    /// headless build sets it.
+    public static let containerVariable = "UPDATEKIT_APP_GROUP_CONTAINER"
+
+    /// The database in a folder standing for an app group's container: the
+    /// one `UPDATEKIT_APP_GROUP_CONTAINER` names, else the user's data folder's
+    /// (`$XDG_DATA_HOME`, or ~/.local/share) folder of the group's name, made
+    /// if missing. Throws when no group is given or named (`UpdateKitInfo`).
+    public static func appGroup(_ given: String? = nil) throws -> AppGroupStore {
+        guard let identifier = given ?? UpdateKitInfo.mainAppGroup else { throw AppGroupStoreError.noAppGroup }
+        let environment = ProcessInfo.processInfo.environment
+        let container: URL
+        if let named = environment[containerVariable], !named.isEmpty {
+            container = URL(fileURLWithPath: named, isDirectory: true)
+        } else {
+            let data = environment["XDG_DATA_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share", isDirectory: true)
+            container = data.appendingPathComponent(identifier, isDirectory: true)
+        }
+        do {
+            try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
+        } catch {
+            throw AppGroupStoreError.noContainer(appGroup: identifier)
+        }
+        return AppGroupStore(fileURL: container.appendingPathComponent(fileName))
+    }
     #endif
 
     // MARK: Apps
