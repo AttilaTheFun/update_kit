@@ -1,5 +1,6 @@
-#if canImport(Darwin)
 import Foundation
+
+#if canImport(Darwin)
 
 /// A Darwin notification in the app group's name, which every process of
 /// the group can post and hear: the database changed (Applications synced a
@@ -43,6 +44,57 @@ private final class SignalObserver: Sendable {
 
     init(continuation: AsyncStream<Void>.Continuation) {
         self.continuation = continuation
+    }
+}
+#else
+/// Where Darwin's notifications aren't (Linux, Windows, the web, Android):
+/// the same signal within this process alone. Each `post()` tells every
+/// stream of the same name in the process. Apps there run alone, so this is
+/// what their tests and a headless build see.
+public struct UpdateSignal: Sendable {
+    public let name: String
+
+    public init(appGroup: String) {
+        name = appGroup + ".updates"
+    }
+
+    public func post() {
+        SignalRegistry.shared.post(name)
+    }
+
+    /// Each time it is posted in this process, until the sequence is dropped.
+    public func changes() -> AsyncStream<Void> {
+        let name = self.name
+        return AsyncStream { continuation in
+            let token = SignalRegistry.shared.add(name, continuation)
+            continuation.onTermination = { _ in SignalRegistry.shared.remove(name, token) }
+        }
+    }
+}
+
+/// The process's listeners, by signal name.
+private final class SignalRegistry: @unchecked Sendable {
+    static let shared = SignalRegistry()
+    private let lock = NSLock()
+    private var listeners: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
+
+    func add(_ name: String, _ continuation: AsyncStream<Void>.Continuation) -> UUID {
+        let token = UUID()
+        lock.lock(); defer { lock.unlock() }
+        listeners[name, default: [:]][token] = continuation
+        return token
+    }
+
+    func remove(_ name: String, _ token: UUID) {
+        lock.lock(); defer { lock.unlock() }
+        listeners[name]?[token] = nil
+    }
+
+    func post(_ name: String) {
+        lock.lock()
+        let told = Array((listeners[name] ?? [:]).values)
+        lock.unlock()
+        for continuation in told { continuation.yield() }
     }
 }
 #endif

@@ -21,6 +21,14 @@ update UI in SwiftUI: `UpdateBanner` and `UpdateVersionSection`
 It depends on [swift_sql](https://github.com/AttilaTheFun/swift_sql)'s
 `SwiftSQL`. Tested on Linux and on Apple's platforms.
 
+Where there are no app groups or Darwin notifications (Linux, and Isomer's
+hosts, such as its headless host for an app's Linux tests), the same API
+works within one process: `AppGroupStore.appGroup` keeps the database in the
+folder `UPDATEKIT_APP_GROUP_CONTAINER` names (else `$XDG_DATA_HOME/<group>`),
+`UpdateSignal` is heard by the process that posts it, and `UpdateBanner` and
+`UpdateVersionSection` build wherever SwiftUI does (nothing is offered where
+nothing installs).
+
 ## Releasing
 
 A release is proposed by hand, on main, and released by the owner in
