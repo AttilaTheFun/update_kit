@@ -13,6 +13,8 @@
 # made it; AttilaTheFun/reviews' docs/PROOF_FORMAT.md), goes beside
 # proof.zip when it is there.
 set -euo pipefail
+# gh on a runner whose image may lack it (gh_ready.sh, beside this file).
+. "$(dirname "$0")/gh_ready.sh"
 version="${1:?usage: tools/ci/propose.sh <version> <proof.zip>}"
 zip="${2:?usage: tools/ci/propose.sh <version> <proof.zip> [<proof-diff.json>]}"
 diff="${3:-}"

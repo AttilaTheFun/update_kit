@@ -1,9 +1,14 @@
 # Update Kit's CI, under the owner's CI policy (2026-11-07): automated runs
 # (pull requests, main) only build, on Linux and on Apple's platforms; the
 # tests run by hand alone (`run: verify`). The job names linux and
-# ios-tests are the checks main's protection requires. GitHub's hosted
-# runners: the repository is public. The toolchains are the apps' own
-# (Swift 6.4.2, Xcode 27). By hand (README, "Releasing"):
+# ios-tests are the checks main's protection requires. Every job runs in
+# Shireworks' single-use Linux containers (update_kit-jit; the small one
+# for script-only jobs), as the owner's CI rule has it (2026-11-12): what
+# needs Apple's SDKs (the macOS build and tests, the iOS simulator build)
+# goes from there to a slot of Shireworks' primary Mac
+# (tools/ci/mac_swift.sh). Update Kit has no GUI, so no job needs GitHub's
+# hosted runners. A fork's pull request runs nothing: a self-hosted runner
+# never runs a fork's code. By hand (README, "Releasing"):
 # - verify (`run: verify`): the tests on Linux and on macOS, each one's
 #   output kept, and a proof of them in format 2 (tools/ci/proof.sh),
 #   uploaded as the run's `proof` artifact, which Reviews shows;
@@ -37,36 +42,30 @@ permissions:
   contents: read
 jobs:
   linux:
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    container: swift:6.4.2
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, update_kit-jit]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       # The package and its tests built, none run.
-      - run: swift build --build-tests
+      - run: |
+          swift --version
+          swift build --build-tests
   # The package built for macOS (its tests too) and for the iOS simulator
   # (what the apps' iPhone and iPad builds take).
   ios-tests:
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: xcode-27
-    timeout-minutes: 30
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, update_kit-jit]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - run: swift build --build-tests
-      # The scheme Xcode makes for the package, by name as it lists it.
-      - run: |
-          set -o pipefail
-          xcodebuild -list -json > "$RUNNER_TEMP/schemes.json"
-          scheme="$(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); s = (d.get("workspace") or d.get("project"))["schemes"]; print(s); p = [n for n in s if n.endswith("-Package")] or [n for n in s if n == "UpdateKit"] or s; print(p[0])' "$RUNNER_TEMP/schemes.json" | tail -1)"
-          echo "Building $scheme for the iOS simulator"
-          xcodebuild build -quiet -scheme "$scheme" -destination 'generic/platform=iOS Simulator'
+      # exec: the runner's cancel reaches the script's trap, which releases the slot.
+      - run: exec tools/ci/mac_swift.sh build
   # The tests, by hand: on Linux and on macOS, before a version is tagged,
   # each one's output and exit status kept for the proof.
   verify-linux:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    container: swift:6.4.2
+    runs-on: [self-hosted, update_kit-jit]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -87,19 +86,12 @@ jobs:
           retention-days: 7
   verify-macos:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: xcode-27
-    timeout-minutes: 30
+    runs-on: [self-hosted, update_kit-jit]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - name: The tests on macOS
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/tests"
-          set +e
-          swift test 2>&1 | tee "$RUNNER_TEMP/tests/test.txt"
-          status=${PIPESTATUS[0]}
-          echo "$status" > "$RUNNER_TEMP/tests/status"
-          exit "$status"
+      - name: The tests on macOS, on a Mac slot
+        run: exec tools/ci/mac_swift.sh test "$RUNNER_TEMP/tests"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -111,7 +103,7 @@ jobs:
   proof:
     needs: [verify-linux, verify-macos]
     if: always() && github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, update_kit-jit-small]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -152,7 +144,7 @@ jobs:
   release:
     needs: proof
     if: github.event_name == 'workflow_dispatch' && inputs.run == 'release' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, update_kit-jit-small]
     timeout-minutes: 15
     permissions:
       contents: write
