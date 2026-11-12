@@ -17,9 +17,10 @@ struct LinuxSurfaceTests {
 
         let store = try AppGroupStore.appGroup("group.com.example.Distributor")
 
-        #expect(store.fileURL.standardizedFileURL.path == folder.appendingPathComponent(AppGroupStore.fileName).standardizedFileURL.path)
+        let file = await store.fileURL
+        #expect(file.standardizedFileURL.path == folder.appendingPathComponent(AppGroupStore.fileName).standardizedFileURL.path)
         #expect(try await store.recordInstalled(bundleID: "com.example.App", version: "1.0", build: "1"))
-        #expect(FileManager.default.fileExists(atPath: store.fileURL.path))
+        #expect(FileManager.default.fileExists(atPath: file.path))
     }
 
     @Test func noGroupNamedIsAnError() {
