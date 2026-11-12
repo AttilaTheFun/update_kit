@@ -181,6 +181,20 @@ public final class AppUpdates {
         }
     }
 
+    /// Applications asked to install the update (an install request, the
+    /// group told, Applications opened) and the app quit: the Mac's way,
+    /// whatever handler is registered. For an app whose update handler
+    /// waits (Shireworks: its work drained first), then hands the install
+    /// to Applications, which puts the build in place and opens the app
+    /// again. On an iPhone or an iPad it opens the install link, as
+    /// `install` does.
+    public static func installThroughApplications(_ update: AvailableUpdate) async throws {
+        guard let store, let signal, let checker else { throw UpdateInstallError.notStarted }
+        let installer = UpdateInstaller(store: store, system: AppleUpdateSystem(signal: signal, applicationsBundleIDs: macApplicationsBundleIDs),
+                                        handler: nil, requester: checker.app.bundleID)
+        _ = try await installer.install(update)
+    }
+
     // MARK: For an app with a notification delegate of its own
 
     /// Whether a notification is an update's: shown in the foreground
