@@ -128,9 +128,22 @@ public final class AppUpdates {
                                        installer: UpdateInstaller(store: store,
                                                                   system: AppleUpdateSystem(signal: signal,
                                                                                             applicationsBundleIDs: macApplicationsBundleIDs),
-                                                                  handler: handler, requester: app.bundleID),
+                                                                  // The update handler as it is when go ahead comes
+                                                                  // (registered before start or after), else the
+                                                                  // Mac's way through Applications.
+                                                                  handler: { update in
+                                                                      if let handler = await MainActor.run(body: { AppUpdates.handler }) {
+                                                                          try await handler(update)
+                                                                      } else {
+                                                                          try await AppUpdates.installThroughApplications(update)
+                                                                      }
+                                                                  }, requester: app.bundleID),
                                        system: AppleUpdateSystem(signal: signal, applicationsBundleIDs: macApplicationsBundleIDs),
-                                       handler: autoUpdateHandler, installHook: autoUpdateInstaller)
+                                       // Looked up as each offer comes, not when start ran: a
+                                       // handler registered after start is asked all the same,
+                                       // never go ahead in its place.
+                                       handler: { offer in await (AppUpdates.autoUpdateHandler?(offer) ?? .goAhead) },
+                                       installHook: { offer in await AppUpdates.autoUpdateInstaller?(offer) })
         Self.responder = responder
         Task {
             do { try await responder.launched() } catch { log.error("The offer was not looked at: \(String(describing: error), privacy: .public)") }
