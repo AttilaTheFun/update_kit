@@ -100,6 +100,19 @@ Opening the notification, or its Install, installs the update
           try await installAndRestart(from: update.installURL)
       }
 
+  A handler that only waits (its work drained first) hands the install to
+  Applications when it's ready, the Mac's way above, whatever handler is
+  registered:
+
+      AppUpdates.register { update in
+          await drain()
+          try await AppUpdates.installThroughApplications(update)
+      }
+
+  An app that is a server asks, in its Info.plist, to be opened after every
+  install Applications makes, even one made while it wasn't running:
+  `UpdateKitReopenAfterInstall`, YES (Applications 0.18 and later).
+
 **Its own notification delegate.** `start` sets the notification center's
 delegate only if the app has none. An app with its own asks
 `AppUpdates.isUpdateNotification(_:)` in `willPresent` (and answers

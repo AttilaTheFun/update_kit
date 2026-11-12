@@ -128,9 +128,22 @@ public final class AppUpdates {
                                        installer: UpdateInstaller(store: store,
                                                                   system: AppleUpdateSystem(signal: signal,
                                                                                             applicationsBundleIDs: macApplicationsBundleIDs),
-                                                                  handler: handler, requester: app.bundleID),
+                                                                  // The update handler as it is when go ahead comes
+                                                                  // (registered before start or after), else the
+                                                                  // Mac's way through Applications.
+                                                                  handler: { update in
+                                                                      if let handler = await MainActor.run(body: { AppUpdates.handler }) {
+                                                                          try await handler(update)
+                                                                      } else {
+                                                                          try await AppUpdates.installThroughApplications(update)
+                                                                      }
+                                                                  }, requester: app.bundleID),
                                        system: AppleUpdateSystem(signal: signal, applicationsBundleIDs: macApplicationsBundleIDs),
-                                       handler: autoUpdateHandler, installHook: autoUpdateInstaller)
+                                       // Looked up as each offer comes, not when start ran: a
+                                       // handler registered after start is asked all the same,
+                                       // never go ahead in its place.
+                                       handler: { offer in await (AppUpdates.autoUpdateHandler?(offer) ?? .goAhead) },
+                                       installHook: { offer in await AppUpdates.autoUpdateInstaller?(offer) })
         Self.responder = responder
         Task {
             do { try await responder.launched() } catch { log.error("The offer was not looked at: \(String(describing: error), privacy: .public)") }
@@ -179,6 +192,20 @@ public final class AppUpdates {
         } catch {
             log.error("The update did not install: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// Applications asked to install the update (an install request, the
+    /// group told, Applications opened) and the app quit: the Mac's way,
+    /// whatever handler is registered. For an app whose update handler
+    /// waits (Shireworks: its work drained first), then hands the install
+    /// to Applications, which puts the build in place and opens the app
+    /// again. On an iPhone or an iPad it opens the install link, as
+    /// `install` does.
+    public static func installThroughApplications(_ update: AvailableUpdate) async throws {
+        guard let store, let signal, let checker else { throw UpdateInstallError.notStarted }
+        let installer = UpdateInstaller(store: store, system: AppleUpdateSystem(signal: signal, applicationsBundleIDs: macApplicationsBundleIDs),
+                                        handler: nil, requester: checker.app.bundleID)
+        _ = try await installer.install(update)
     }
 
     // MARK: For an app with a notification delegate of its own
