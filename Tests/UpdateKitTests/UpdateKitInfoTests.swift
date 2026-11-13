@@ -24,18 +24,4 @@ final class UpdateKitInfoTests: XCTestCase {
                        ["com.example.A", "com.example.B"])
         XCTAssertEqual(UpdateKitInfo.applicationsBundleIDs(in: nil), [])
     }
-
-    @MainActor
-    func testTheStatusSaysWhatTheCheckFound() {
-        let status = UpdateStatus()
-        XCTAssertNil(status.available)
-        XCTAssertFalse(status.checks)
-        let update = AvailableUpdate(bundleID: "com.example.App", version: "1.2", build: "3", installURL: nil,
-                                     installedVersion: "1.1", installedBuild: "1")
-        status.found(.available(update))
-        XCTAssertEqual(status.available, update)
-        XCTAssertTrue(status.checks)
-        status.found(.upToDate)
-        XCTAssertNil(status.available)
-    }
 }

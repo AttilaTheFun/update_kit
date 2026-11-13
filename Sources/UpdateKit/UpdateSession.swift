@@ -1,10 +1,10 @@
 import Foundation
 
 /// What `AppUpdates.start` sets going, apart from Apple's system: the
-/// database, the signal, the check, and (on a Mac) the answering of offers,
-/// and how an update installs: the update handler as it is when asked, else
-/// the platform's way. Portable, so its wiring is tested on Linux with a
-/// fake system and presenter; `AppUpdates` makes one with Apple's.
+/// database, the signal, the check (the build written), and (on a Mac) the
+/// answering of offers, and how an update installs: the update handler as
+/// it is when asked, else the platform's way. Portable, so its wiring is
+/// tested on Linux with a fake system; `AppUpdates` makes one with Apple's.
 @MainActor
 public final class UpdateSession {
     public let store: AppGroupStore
@@ -22,8 +22,8 @@ public final class UpdateSession {
     /// The offers' answerer, once `answerOffers` has made it (a Mac's).
     public private(set) var responder: OfferResponder?
 
-    public init(store: AppGroupStore, app: InstalledApp, signal: UpdateSignal, system: any UpdateSystem, presenter: any UpdatePresenter,
-                platform: UpdatePlatform = .current, tellsOfUpdates: Bool = true,
+    public init(store: AppGroupStore, app: InstalledApp, signal: UpdateSignal, system: any UpdateSystem,
+                platform: UpdatePlatform = .current,
                 handler: @escaping @MainActor () -> UpdateHandler? = { nil },
                 autoUpdate: @escaping @MainActor () -> AutoUpdateHandler? = { nil },
                 installHook: @escaping @MainActor () -> AutoUpdateInstaller? = { nil },
@@ -37,7 +37,7 @@ public final class UpdateSession {
         self.autoUpdate = autoUpdate
         self.installHook = installHook
         self.now = now
-        checker = UpdateChecker(store: store, app: app, presenter: presenter, tells: tellsOfUpdates)
+        checker = UpdateChecker(store: store, app: app)
     }
 
     /// The app's build written, and what Applications knows of a newer one.

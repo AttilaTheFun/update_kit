@@ -1,5 +1,5 @@
 """UpdateKit's Bazel build: only what CI's container checks that SwiftPM
-can't do on Linux, the package's two libraries built for iOS and macOS
+can't do on Linux, the package's library built for iOS and macOS
 (rules_applecross: Apple's SDKs and ported tools on Linux, as the apps
 build theirs). The package itself is SwiftPM's (Package.swift); the apps
 take it through SwiftPM or rules_swift_package_manager by its tags."""

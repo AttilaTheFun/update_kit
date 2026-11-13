@@ -1,4 +1,4 @@
-#if canImport(UserNotifications)
+#if canImport(Darwin)
 import Foundation
 #if canImport(UIKit)
 import UIKit

@@ -9,13 +9,10 @@ import PackageDescription
 
 let package = Package(
     name: "update_kit",
-    // Observation's floor (UpdateStatus); the apps' own minimums are higher.
+    // The apps' own minimums are higher.
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "UpdateKit", targets: ["UpdateKit"]),
-        // The update UI in SwiftUI: a banner and a version section. Empty
-        // where there is no SwiftUI (Linux).
-        .library(name: "UpdateKitUI", targets: ["UpdateKitUI"]),
     ],
     dependencies: [
         // A range, not one version: the apps pin swift_sql themselves, and
@@ -26,9 +23,6 @@ let package = Package(
         .target(
             name: "UpdateKit",
             dependencies: [.product(name: "SwiftSQL", package: "swift_sql")]),
-        .target(
-            name: "UpdateKitUI",
-            dependencies: ["UpdateKit"]),
         .testTarget(
             name: "UpdateKitTests",
             dependencies: ["UpdateKit", .product(name: "SwiftSQL", package: "swift_sql")]),

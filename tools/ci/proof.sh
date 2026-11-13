@@ -6,7 +6,7 @@
 # `proof` job writes this from them, and uploads the folder as the run's
 # `proof` artifact, which Reviews shows and asks for before a release
 # (README, "Releasing"). Every test runs on Linux (the owner's CI rule,
-# 2026-11-13); Apple's builds of the libraries are the `ios-tests` job's. It
+# 2026-11-13); Apple's builds of the library are the `ios-tests` job's. It
 # fails as the tests did, after the proof is written either way.
 #
 #   tools/ci/proof.sh <proof folder> <linux log folder> [version]

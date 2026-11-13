@@ -1,4 +1,4 @@
-# UpdateKit's Bazel build (MODULE.bazel): the libraries for iOS and macOS,
+# UpdateKit's Bazel build (MODULE.bazel): the library for iOS and macOS,
 # in CI's Linux container (tools/ci/container_build.sh).
 common --enable_bzlmod
 common --lockfile_mode=off

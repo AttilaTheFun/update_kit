@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import UpdateKit
 
-/// What AppUpdates sets going, with a fake system and presenter
+/// What AppUpdates sets going, with a fake system
 /// (UpdateSession): the check, how an update installs (the update handler as
 /// it is when asked, else the platform's way), and the offers' go ahead.
 /// Portable: these run on Linux, where Apple's notifications aren't.
@@ -17,10 +17,10 @@ final class UpdateSessionTests {
     deinit { temporary.remove() }
 
     private func session(platform: UpdatePlatform = .macOS, system: FakeSystem = FakeSystem(),
-                         presenter: FakePresenter = FakePresenter(), running version: String = "0.39.2") -> UpdateSession {
+                         running version: String = "0.39.2") -> UpdateSession {
         let store = AppGroupStore(fileURL: temporary.file, now: { Date(timeIntervalSince1970: 1_000) })
         return UpdateSession(store: store, app: InstalledApp(bundleID: visor, version: version, build: "1"),
-                             signal: UpdateSignal(appGroup: "group.example." + UUID().uuidString), system: system, presenter: presenter,
+                             signal: UpdateSignal(appGroup: "group.example." + UUID().uuidString), system: system,
                              platform: platform, handler: { [weak self] in self?.registered },
                              now: { Date(timeIntervalSince1970: 50) })
     }
@@ -35,14 +35,12 @@ final class UpdateSessionTests {
     }
 
     @Test func aCheckWritesTheBuildAndFindsANewerOne() async throws {
-        let presenter = FakePresenter()
-        let session = session(presenter: presenter)
+        let session = session()
         try await newer(session)
         let found = try await session.check()
         guard case .available(let update) = found else { Issue.record("no update found: \(found)"); return }
         #expect(update.version == "0.40.1")
         #expect(try await session.store.record(bundleID: visor)?.installedVersion == "0.39.2")
-        #expect(await presenter.presented.map(\.version) == ["0.40.1"])
     }
 
     @Test func withoutAHandlerAMacAsksApplicationsAndQuits() async throws {

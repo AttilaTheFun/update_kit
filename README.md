@@ -14,9 +14,8 @@ Applications, and to hear of their own updates (docs/Updates.md). Until
 The app group it shares with Applications, and on a Mac Applications'
 bundle ids, come from the app's Info.plist (`UpdateKitAppGroup`,
 `UpdateKitApplicationsBundleIDs`), which the distributor's CI stamps in;
-without them it does nothing. `UpdateKitUI` (`import UpdateKitUI`) is the
-update UI in SwiftUI: `UpdateBanner` and `UpdateVersionSection`
-(docs/Updates.md, "The app group").
+without them it does nothing. An app tells of nothing and shows no update
+UI: only Applications tells of updates (0.17.0; docs/Updates.md).
 
 It depends on [swift_sql](https://github.com/AttilaTheFun/swift_sql)'s
 `SwiftSQL`. Tested on Linux; built for iOS and macOS on Linux too (Bazel
@@ -26,9 +25,7 @@ Where there are no app groups or Darwin notifications (Linux, and Isomer's
 hosts, such as its headless host for an app's Linux tests), the same API
 works within one process: `AppGroupStore.appGroup` keeps the database in the
 folder `UPDATEKIT_APP_GROUP_CONTAINER` names (else `$XDG_DATA_HOME/<group>`),
-`UpdateSignal` is heard by the process that posts it, and `UpdateBanner` and
-`UpdateVersionSection` build wherever SwiftUI does (nothing is offered where
-nothing installs).
+and `UpdateSignal` is heard by the process that posts it.
 
 ## Releasing
 
