@@ -1,25 +1,18 @@
-#if canImport(UserNotifications)
+#if canImport(Darwin)
 import Foundation
-import UserNotifications
 import os
-#if canImport(UIKit)
-import UIKit
-#elseif canImport(AppKit)
-import AppKit
-#endif
 
-/// An app's updates, from Applications, in one call at launch:
+/// An app's side of its updates, in one call at launch:
 ///
 ///     AppUpdates.start()
 ///
 /// The app writes the build it is to the database it shares with
-/// Applications (in the app group its Info.plist names, `UpdateKitInfo`), and
-/// when Applications has said of a newer build, tells the user with a local
-/// notification while the app is in the foreground: at launch, each time
-/// it comes forward, and when Applications syncs a newer one while it runs.
-/// Opening the notification, or its Install, installs the update
-/// (`UpdateInstaller`). A Mac app that updates itself registers its handler
-/// first: `AppUpdates.register(updateHandler:)`.
+/// Applications (in the app group its Info.plist names, `UpdateKitInfo`), so
+/// Applications knows what is installed, and on a Mac answers Applications'
+/// offers to update it automatically. It tells of nothing and shows nothing:
+/// only Applications (or Shireworks, where it shows Applications) tells of
+/// updates (the owner, 2026-11-13). A Mac app that updates itself registers
+/// its handler first: `AppUpdates.register(updateHandler:)`.
 @MainActor
 public final class AppUpdates {
     /// The distributor on the Mac, as the app's Info.plist names it
@@ -33,11 +26,7 @@ public final class AppUpdates {
     /// What start set going (UpdateSession: portable, tested on Linux).
     private static var session: UpdateSession?
     private static var responder: OfferResponder? { session?.responder }
-    /// Kept: the notification center holds its delegate weakly.
-    private static var delegate: UpdateNotificationDelegate?
-    private static var watching: Task<Void, Never>?
     private static var offersWatch: Task<Void, Never>?
-    private static var foregroundObserver: (any NSObjectProtocol)?
     private static let log = Logger(subsystem: "UpdateKit", category: "updates")
 
     private init() {}
@@ -90,19 +79,15 @@ public final class AppUpdates {
         do { try await responder?.installFailed(note) } catch { log.error("Not marked failed: \(String(describing: error), privacy: .public)") }
     }
 
-    /// Starts at launch: writes the app's build and checks for a newer one
-    /// now, when it comes to the foreground and when Applications syncs.
-    /// `tellsOfUpdates: false` only writes the build (Applications itself,
-    /// which tells of its own updates). The app group is the one given,
-    /// else the one the app's Info.plist names (`UpdateKitInfo`); with
+    /// Starts at launch: writes the app's build, and on a Mac answers
+    /// Applications' offers, now and as they come. The app group is the one
+    /// given, else the one the app's Info.plist names (`UpdateKitInfo`); with
     /// neither, it does nothing at all: a build from the public source,
     /// whose distributor's CI didn't stamp one in. An app without the
     /// group's container (its entitlements, its profile) logs why and does
-    /// nothing. `UpdateStatus.shared` says what each check found, for the
-    /// app's own update UI (UpdateKitUI).
-    public static func start(appGroup given: String? = nil, tellsOfUpdates: Bool = true) {
+    /// nothing.
+    public static func start(appGroup given: String? = nil) {
         guard session == nil, let app = InstalledApp.main() else { return }
-        UpdateStatus.shared.installed = app
         guard let appGroup = given ?? UpdateKitInfo.mainAppGroup else {
             log.debug("No app group in the Info.plist (\(UpdateKitInfo.appGroupKey, privacy: .public)): no updates")
             return
@@ -119,7 +104,6 @@ public final class AppUpdates {
         // registered after start is asked all the same.
         let session = UpdateSession(store: store, app: app, signal: signal,
                                     system: AppleUpdateSystem(signal: signal, applicationsBundleIDs: macApplicationsBundleIDs),
-                                    presenter: NotificationPresenter(appName: appName), tellsOfUpdates: tellsOfUpdates,
                                     handler: { AppUpdates.handler }, autoUpdate: { AppUpdates.autoUpdateHandler },
                                     installHook: { AppUpdates.autoUpdateInstaller })
         Self.session = session
@@ -132,28 +116,13 @@ public final class AppUpdates {
             offersWatch = await session.answerOffers { note in log.error("\(note, privacy: .public)") }
         }
         #endif
-        guard tellsOfUpdates else { return }
-        let center = UNUserNotificationCenter.current()
-        if center.delegate == nil {
-            let delegate = UpdateNotificationDelegate()
-            Self.delegate = delegate
-            center.delegate = delegate
-        }
-        Task { await addCategory() }
-        foregroundObserver = NotificationCenter.default.addObserver(forName: becameActive, object: nil, queue: .main) { _ in
-            Task { @MainActor in await AppUpdates.check() }
-        }
-        watching = Task {
-            for await _ in signal.changes() { await check() }
-        }
     }
 
-    /// Checks again now.
+    /// Writes the build again now.
     public static func check() async {
         guard let session else { return }
         do {
-            let found = try await session.check()
-            UpdateStatus.shared.found(found)
+            _ = try await session.check()
         } catch {
             log.error("The update check failed: \(String(describing: error), privacy: .public)")
         }
@@ -180,46 +149,6 @@ public final class AppUpdates {
     public static func installThroughApplications(_ update: AvailableUpdate) async throws {
         guard let session else { throw UpdateInstallError.notStarted }
         _ = try await session.installThroughApplications(update)
-    }
-
-    // MARK: For an app with a notification delegate of its own
-
-    /// Whether a notification is an update's: shown in the foreground
-    /// (`[.banner, .list, .sound]`) by an app's own delegate.
-    public nonisolated static func isUpdateNotification(_ notification: UNNotification) -> Bool {
-        notification.request.content.categoryIdentifier == NotificationPresenter.category
-    }
-
-    /// The update a notification the user opened (or chose Install on)
-    /// offers, for `install`; nil for any other.
-    public nonisolated static func update(from response: UNNotificationResponse) -> AvailableUpdate? {
-        guard isUpdateNotification(response.notification),
-              [UNNotificationDefaultActionIdentifier, NotificationPresenter.installAction].contains(response.actionIdentifier) else { return nil }
-        return AvailableUpdate(userInfo: response.notification.request.content.userInfo)
-    }
-
-    // MARK: Inside
-
-    /// The update notification's category beside the app's own. An app that
-    /// sets its categories after `start` includes
-    /// `NotificationPresenter.notificationCategory` in them.
-    private nonisolated static func addCategory() async {
-        let center = UNUserNotificationCenter.current()
-        let existing = await center.notificationCategories().filter { $0.identifier != NotificationPresenter.category }
-        center.setNotificationCategories(existing.union([NotificationPresenter.notificationCategory]))
-    }
-
-    private static var appName: String {
-        let info = Bundle.main.infoDictionary ?? [:]
-        return info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? Bundle.main.bundleIdentifier ?? "This app"
-    }
-
-    private static var becameActive: Notification.Name {
-        #if canImport(UIKit)
-        return UIApplication.didBecomeActiveNotification
-        #else
-        return NSApplication.didBecomeActiveNotification
-        #endif
     }
 }
 #endif

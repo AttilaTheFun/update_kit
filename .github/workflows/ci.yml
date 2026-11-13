@@ -5,7 +5,7 @@
 # Shireworks' single-use Linux containers (update_kit-jit; the small one
 # for script-only jobs) and leases nothing, as the owner's CI rule has it
 # (2026-11-13: "all in containers"): the tests run on Linux under SwiftPM,
-# and the libraries are built for iOS and macOS there by Bazel with
+# and the library is built for iOS and macOS there by Bazel with
 # rules_applecross (tools/ci/container_build.sh, MODULE.bazel). Update Kit
 # has no GUI, so no job needs a Mac or GitHub's hosted runners. A fork's
 # pull request runs nothing: a self-hosted runner never runs a fork's code.
@@ -52,7 +52,7 @@ jobs:
       - run: |
           swift --version
           swift build --build-tests
-  # The libraries built for iOS and macOS (what the apps' builds take), in
+  # The library built for iOS and macOS (what the apps' builds take), in
   # the container, by Bazel with Apple's SDKs on Linux: no Mac.
   ios-tests:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)

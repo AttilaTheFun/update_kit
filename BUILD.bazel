@@ -9,9 +9,9 @@ exports_files([
     "Package.swift",
 ])
 
-# The package's two libraries as Bazel builds them for Apple's platforms,
+# The package's library as Bazel builds it for Apple's platforms,
 # for CI's container to check (the `ios-tests` job): what SwiftPM can only
-# build on a Mac. Their tests run on Linux, under SwiftPM.
+# build on a Mac. Its tests run on Linux, under SwiftPM.
 swift_library(
     name = "UpdateKit",
     srcs = glob(["Sources/UpdateKit/*.swift"]),
@@ -20,22 +20,14 @@ swift_library(
     deps = ["@swiftpkg_swift_sql//:SwiftSQL"],
 )
 
-swift_library(
-    name = "UpdateKitUI",
-    srcs = glob(["Sources/UpdateKitUI/*.swift"]),
-    copts = ["-swift-version", "6"],
-    module_name = "UpdateKitUI",
-    deps = [":UpdateKit"],
-)
-
 ios_build_test(
     name = "ios_build",
     minimum_os_version = "17.0",
-    targets = [":UpdateKitUI"],
+    targets = [":UpdateKit"],
 )
 
 macos_build_test(
     name = "macos_build",
     minimum_os_version = "14.0",
-    targets = [":UpdateKitUI"],
+    targets = [":UpdateKit"],
 )

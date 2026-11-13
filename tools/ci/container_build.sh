@@ -1,5 +1,5 @@
 #!/bin/bash
-# UpdateKit's libraries built for iOS and macOS in a Linux container, with
+# UpdateKit built for iOS and macOS in a Linux container, with
 # rules_applecross (MODULE.bazel): CI's `ios-tests` job, in its own
 # container (Shireworks' single-use update_kit-jit runners), leasing
 # nothing. Shireworks has written its ~/.bazelrc (its cache, read-only) and
@@ -8,7 +8,7 @@
 # downloader config written here (tools/ci/shireworks_files.sh): no host is
 # named in the repository. Copied from Applications' (its tools/ci).
 #
-#   tools/ci/container_build.sh                  # the libraries for iOS and macOS
+#   tools/ci/container_build.sh                  # the library for iOS and macOS
 #   tools/ci/container_build.sh build <args…>    # bazel build <args…> there
 #
 #   SHIREWORKS_FILES_HOST   the name Shireworks' files and cache are reached by

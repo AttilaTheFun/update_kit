@@ -1,16 +1,19 @@
 # Updates: UpdateKit
 
-Every app Applications distributes tells its user of its own updates, with
+**Only Applications tells of updates** (the owner, 2026-11-13): Applications,
+or Shireworks where it shows Applications, notifies of new builds; the apps
+it distributes show nothing of their own, no notice, banner or update UI,
+on any platform (UpdateKit 0.17.0). Pushes will come from Shireworks'
+server. What an app still does, through UpdateKit, is say which build it is
+and, on a Mac, answer Applications' offers to update it automatically, with
 nothing between it and Applications but a database they share. The
 owner's design (2026-10-31): Applications and the apps it distributes are in one
 app group, named in each app's Info.plist (`UpdateKitAppGroup`, below);
 Applications writes each
 app's newest build to a SQLite database in the group's container as it
 syncs with Applications Server, and each app writes the build it is. At
-launch an app looks at its own row, and when the newest build is newer than
-itself it shows a local notification, while it is in the foreground, whose
-Install installs the update. No build is stamped for it and no URL scheme
-is asked about.
+launch an app writes its row; Applications reads them to know what is
+installed. No build is stamped for it and no URL scheme is asked about.
 
 The library is `UpdateKit`, this repository's Swift package
 (Package.swift; until 0.11.0 the module `ApplicationUpdates`, in
@@ -66,21 +69,14 @@ Paths below under `app/` are Applications' own, in its repository.
     // applicationDidFinishLaunching(_:), or the App's init):
     AppUpdates.start()
 
-`AppUpdates.start()` writes the app's build, then checks
-(`UpdateChecker`), off the main actor: at launch, each time the app comes
-to the foreground, and when Applications announces a change. When the
-newest build is newer than the app (`AppVersion`: part by part as numbers,
-0.10.2 after 0.9.34, then the build), it shows a notification, "Visor
-0.40.1 is available", with Install:
+`AppUpdates.start()` writes the app's build at launch (`UpdateChecker`, off
+the main actor), and decides whether Applications knows of a newer one
+(`AppVersion`: part by part as numbers, 0.10.2 after 0.9.34, then the
+build). It tells of nothing (0.17.0: the notification, the banner and the
+version section are gone).
 
-- **only while the app is in the foreground**: a check in the background
-  waits until it comes forward;
-- **once a build a process**: a newer one is told again;
-- **permission** is asked the first time there is one to show; refused,
-  nothing is shown.
-
-Opening the notification, or its Install, installs the update
-(`UpdateInstaller`):
+An update installs (`UpdateInstaller`, when the app's own handler or
+Applications' offer calls for it):
 
 - **iPhone and iPad**: the build's over-the-air install link is opened;
   iOS asks, then ends the app and replaces it.
@@ -113,16 +109,8 @@ Opening the notification, or its Install, installs the update
   install Applications makes, even one made while it wasn't running:
   `UpdateKitReopenAfterInstall`, YES (Applications 0.18 and later).
 
-**Its own notification delegate.** `start` sets the notification center's
-delegate only if the app has none. An app with its own asks
-`AppUpdates.isUpdateNotification(_:)` in `willPresent` (and answers
-`[.banner, .list, .sound]`), passes `AppUpdates.update(from:)` to
-`AppUpdates.install(_:)` in `didReceive`, and, if it sets its notification
-categories after `start`, includes `NotificationPresenter.notificationCategory`.
-
-**Applications itself** calls `AppUpdates.start(tellsOfUpdates: false)`:
-it writes its own build, and tells of its updates as it always has (its
-pushes on an iPhone, NewBuildNotices on a Mac).
+**Applications itself** calls `AppUpdates.start()` as every app does: it
+writes its own build, and tells of every app's updates, its own among them.
 
 ## Updating automatically (a Mac)
 
@@ -203,11 +191,6 @@ repository never says them.
 - `UpdateKitApplicationsBundleIDs` (an array of strings, a Mac's): the
   bundle ids of Applications to ask to install an update, the first
   installed one asked.
-
-`UpdateStatus.shared` says what each check found (the build running and any
-newer one), and UpdateKitUI shows it: `UpdateBanner`, a line with Install
-while there is an update, and `UpdateVersionSection`, the version for an
-app's Settings or About form, with Install when there is one.
 
 Every app that reads or writes the database needs
 `com.apple.security.application-groups` with the same group in its
