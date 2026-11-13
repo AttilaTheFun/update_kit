@@ -30,14 +30,15 @@ def tests(name, title, status):
     text = open(os.path.join(proof, "logs", name), errors="replace").read()
     # XCTest's summary of all its tests is its last: "Executed 41 tests,
     # with 0 failures (0 unexpected)"; Swift Testing's: "Test run with 8
-    # tests in 2 suites passed" (or "… failed after … with 1 issue").
+    # tests in 2 suites passed" (or "… failed after … with 1 issue": a
+    # failed run that names no issues counts one).
     counts = re.findall(r"Executed (\d+) tests?, with (\d+) failures?", text)
     tests, failures = (int(counts[-1][0]), int(counts[-1][1])) if counts else (0, 0)
     swift_testing = re.findall(r"Test run with (\d+) tests?(?: in \d+ suites?)? (passed|failed)(?:.*?with (\d+) issues?)?", text)
     if swift_testing:
         count, outcome, issues = swift_testing[-1]
         tests += int(count)
-        failures += int(issues or 0) if outcome == "failed" else 0
+        failures += int(issues or 1) if outcome == "failed" else 0
     return {"id": "tests/" + name.split(".")[0], "kind": "tests", "title": title,
             "result": "passed" if status == "0" else "failed", "tests": tests, "failures": failures,
             "log": "logs/" + name}
