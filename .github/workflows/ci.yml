@@ -3,14 +3,15 @@
 # tests run by hand alone (`run: verify`). The job names linux and
 # ios-tests are the checks main's protection requires. Every job runs in
 # Shireworks' single-use Linux containers (update_kit-jit; the small one
-# for script-only jobs), as the owner's CI rule has it (2026-11-12): what
-# needs Apple's SDKs (the macOS build and tests, the iOS simulator build)
-# goes from there to a slot of Shireworks' primary Mac
-# (tools/ci/mac_swift.sh). Update Kit has no GUI, so no job needs GitHub's
-# hosted runners. A fork's pull request runs nothing: a self-hosted runner
-# never runs a fork's code. By hand (README, "Releasing"):
-# - verify (`run: verify`): the tests on Linux and on macOS, each one's
-#   output kept, and a proof of them in format 2 (tools/ci/proof.sh),
+# for script-only jobs) and leases nothing, as the owner's CI rule has it
+# (2026-11-13: "all in containers"): the tests run on Linux under SwiftPM,
+# and the libraries are built for iOS and macOS there by Bazel with
+# rules_applecross (tools/ci/container_build.sh, MODULE.bazel). Update Kit
+# has no GUI, so no job needs a Mac or GitHub's hosted runners. A fork's
+# pull request runs nothing: a self-hosted runner never runs a fork's code.
+# By hand (README, "Releasing"):
+# - verify (`run: verify`): the tests on Linux, their output kept, and a
+#   proof of them in format 2 (tools/ci/proof.sh),
 #   uploaded as the run's `proof` artifact, which Reviews shows;
 # - release (`run: release`, on main, with `version`): verify, then the
 #   draft "UpdateKit <version>" proposed with that proof as proof.zip
@@ -51,18 +52,18 @@ jobs:
       - run: |
           swift --version
           swift build --build-tests
-  # The package built for macOS (its tests too) and for the iOS simulator
-  # (what the apps' iPhone and iPad builds take).
+  # The libraries built for iOS and macOS (what the apps' builds take), in
+  # the container, by Bazel with Apple's SDKs on Linux: no Mac.
   ios-tests:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, update_kit-jit]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      # exec: the runner's cancel reaches the script's trap, which releases the slot.
-      - run: exec tools/ci/mac_swift.sh build
-  # The tests, by hand: on Linux and on macOS, before a version is tagged,
-  # each one's output and exit status kept for the proof.
+      # exec: the runner's cancel reaches Bazel.
+      - run: exec tools/ci/container_build.sh
+  # The tests, by hand, on Linux, before a version is tagged: their output
+  # and exit status kept for the proof.
   verify-linux:
     if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, update_kit-jit]
@@ -84,24 +85,10 @@ jobs:
           name: tests-linux
           path: ${{ runner.temp }}/tests
           retention-days: 7
-  verify-macos:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, update_kit-jit]
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v5
-      - name: The tests on macOS, on a Mac slot
-        run: exec tools/ci/mac_swift.sh test "$RUNNER_TEMP/tests"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: tests-macos
-          path: ${{ runner.temp }}/tests
-          retention-days: 7
-  # The proof of both, uploaded as `proof` (flat: proof.json at its top),
+  # The proof of them, uploaded as `proof` (flat: proof.json at its top),
   # kept 90 days as an app's. It fails as the tests did, after the upload.
   proof:
-    needs: [verify-linux, verify-macos]
+    needs: verify-linux
     if: always() && github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, update_kit-jit-small]
     timeout-minutes: 10
@@ -112,16 +99,11 @@ jobs:
         with:
           name: tests-linux
           path: ${{ runner.temp }}/linux
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: tests-macos
-          path: ${{ runner.temp }}/macos
       # Untrusted text reaches the shell through env, never ${{ }} in run.
       - name: The proof
         env:
           VERSION: ${{ inputs.version }}
-        run: exec tools/ci/proof.sh "$RUNNER_TEMP/proof" "$RUNNER_TEMP/linux" "$RUNNER_TEMP/macos" "$VERSION"
+        run: exec tools/ci/proof.sh "$RUNNER_TEMP/proof" "$RUNNER_TEMP/linux" "$VERSION"
       # The proof's comparison with the prior release's, made once and kept
       # beside proof.json (proof-diff.json; AttilaTheFun/reviews'
       # docs/PROOF_FORMAT.md): Reviews shows it at once. Never fails the job.

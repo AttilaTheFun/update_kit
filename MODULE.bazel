@@ -1,0 +1,73 @@
+"""UpdateKit's Bazel build: only what CI's container checks that SwiftPM
+can't do on Linux, the package's two libraries built for iOS and macOS
+(rules_applecross: Apple's SDKs and ported tools on Linux, as the apps
+build theirs). The package itself is SwiftPM's (Package.swift); the apps
+take it through SwiftPM or rules_swift_package_manager by its tags."""
+
+module(name = "update_kit")
+
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+# rules_swift, rules_apple and rules_applecross as isomer 0.50.1 takes them,
+# from the project's registry (.bazelrc), as Applications does.
+bazel_dep(name = "rules_swift", version = "4.2.2.isomer.3")
+bazel_dep(name = "rules_cc", version = "0.2.26")
+bazel_dep(name = "rules_apple", version = "5.3.1.applecross.6")
+bazel_dep(name = "apple_support", version = "2.11.0")
+bazel_dep(name = "rules_applecross", version = "0.0.3.382f8c3")
+
+apple_cross_toolchain = use_extension("@rules_applecross//toolchain:extensions.bzl", "apple_cross_toolchain")
+apple_cross_toolchain.swift(
+    name = "applecross_swift",
+    platform_sha256 = {
+        "ubuntu24.04": "2e9ebec040ad459dd89a6d093a02d8314939135104850fae4d5c0f174fb3ba8c",
+        "ubuntu24.04-aarch64": "307772afcc0b9501faa4797eb4197076facf5768593a0d8d2b83615c95b0040e",
+        "xcode": "0a7d8489900d21dbf5f0187cb570e646a4c0226d0ddef2cbde8c7f54dfe79736",
+    },
+    swift_version = "6.4.2",
+)
+# The SDKs and the ported tools by placeholder URLs, which CI's downloader
+# config points at Shireworks' files (tools/ci/container_build.sh).
+apple_cross_toolchain.configure(
+    name = "apple_cross_toolchain",
+    apple_sdk_urls = ["https://apple-sdks.invalid/apple-sdks-27.2.tar.gz"],
+    local_xcode = True,
+    ported_tools_manifest = "//third_party/applecross:ported_tools.sha256",
+    ported_tools_urls = ["https://ported-tools.invalid/sha256/{sha256}"],
+    swift_tools = {
+        "aarch64": "@applecross_swift_ubuntu24.04-aarch64//:tools",
+        "x86_64": "@applecross_swift_ubuntu24.04//:tools",
+    },
+    swift_tools_macos = "@applecross_swift_xcode//:tools",
+    xcode_version = "27.2",
+)
+use_repo(apple_cross_toolchain, "apple_cross_toolchain")
+
+register_toolchains(
+    "@rules_applecross//toolchain:apple_bundling_on_linux",
+    "@rules_applecross//toolchain:apple_bundling_on_macos",
+)
+
+# swift_sql, from Package.swift and the Package.resolved beside it.
+bazel_dep(name = "rules_swift_package_manager", version = "1.25.0.isomer.1")
+
+swift_deps = use_extension("@rules_swift_package_manager//:extensions.bzl", "swift_deps")
+swift_deps.from_package(
+    resolved = "//:Package.resolved",
+    swift = "//:Package.swift",
+)
+use_repo(swift_deps, "swift_package", "swiftpkg_swift_sql")
+
+swift = use_extension("@rules_swift//swift:extensions.bzl", "swift")
+swift.toolchain(
+    name = "swift_toolchain",
+    swift_version = "6.4.2",
+)
+use_repo(swift, "swift_toolchain")
+
+register_toolchains(
+    "@swift_toolchain//:swift_toolchain_exec_ubuntu24.04",
+    "@swift_toolchain//:swift_toolchain_exec_ubuntu24.04-aarch64",
+)
+
+bazel_dep(name = "rules_shell", version = "0.8.0")

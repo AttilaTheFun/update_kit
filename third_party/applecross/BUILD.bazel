@@ -1,0 +1,7 @@
+# rules_applecross's ported tools (the clean-room actool, ibtool, codesign
+# and the rest, built for Linux) by their SHA-256, for MODULE.bazel's
+# apple_cross_toolchain.configure: isomer's list at v0.50.1
+# (tools/applecross/ported_tools.sha256), for the rules_applecross
+# 0.0.3.382f8c3 it takes. A builder's --distdir or a Shireworks server's
+# /files serves them.
+exports_files(["ported_tools.sha256"])

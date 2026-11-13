@@ -1,0 +1,15 @@
+{
+  "originHash" : "",
+  "pins" : [
+    {
+      "identity" : "swift_sql",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/AttilaTheFun/swift_sql.git",
+      "state" : {
+        "revision" : "feb21a6e9fe3aeac72c055c4092c34106a4f19df",
+        "version" : "0.35.0"
+      }
+    }
+  ],
+  "version" : 3
+}
