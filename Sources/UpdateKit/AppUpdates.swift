@@ -127,6 +127,7 @@ public final class AppUpdates {
         // Offers are a Mac's: answered at launch and on each signal, by
         // every app (Applications too, of its own updates).
         #if os(macOS)
+        let log = Self.log
         Task { @MainActor in
             offersWatch = await session.answerOffers { note in log.error("\(note, privacy: .public)") }
         }
