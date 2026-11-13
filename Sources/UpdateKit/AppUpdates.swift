@@ -30,10 +30,9 @@ public final class AppUpdates {
     private static var handler: UpdateHandler?
     private static var autoUpdateHandler: AutoUpdateHandler?
     private static var autoUpdateInstaller: AutoUpdateInstaller?
-    private static var responder: OfferResponder?
-    private static var store: AppGroupStore?
-    private static var signal: UpdateSignal?
-    private static var checker: UpdateChecker?
+    /// What start set going (UpdateSession: portable, tested on Linux).
+    private static var session: UpdateSession?
+    private static var responder: OfferResponder? { session?.responder }
     /// Kept: the notification center holds its delegate weakly.
     private static var delegate: UpdateNotificationDelegate?
     private static var watching: Task<Void, Never>?
@@ -102,7 +101,7 @@ public final class AppUpdates {
     /// nothing. `UpdateStatus.shared` says what each check found, for the
     /// app's own update UI (UpdateKitUI).
     public static func start(appGroup given: String? = nil, tellsOfUpdates: Bool = true) {
-        guard checker == nil, let app = InstalledApp.main() else { return }
+        guard session == nil, let app = InstalledApp.main() else { return }
         UpdateStatus.shared.installed = app
         guard let appGroup = given ?? UpdateKitInfo.mainAppGroup else {
             log.debug("No app group in the Info.plist (\(UpdateKitInfo.appGroupKey, privacy: .public)): no updates")
@@ -116,42 +115,21 @@ public final class AppUpdates {
             return
         }
         let signal = UpdateSignal(appGroup: appGroup)
-        let checker = UpdateChecker(store: store, app: app, presenter: NotificationPresenter(appName: appName), tells: tellsOfUpdates)
-        Self.store = store
-        Self.signal = signal
-        Self.checker = checker
+        // The handlers looked up as each is needed, not when start ran: one
+        // registered after start is asked all the same.
+        let session = UpdateSession(store: store, app: app, signal: signal,
+                                    system: AppleUpdateSystem(signal: signal, applicationsBundleIDs: macApplicationsBundleIDs),
+                                    presenter: NotificationPresenter(appName: appName), tellsOfUpdates: tellsOfUpdates,
+                                    handler: { AppUpdates.handler }, autoUpdate: { AppUpdates.autoUpdateHandler },
+                                    installHook: { AppUpdates.autoUpdateInstaller })
+        Self.session = session
         Task { await check() }
         // Offers are a Mac's: answered at launch and on each signal, by
         // every app (Applications too, of its own updates).
         #if os(macOS)
-        let responder = OfferResponder(store: store, app: app,
-                                       installer: UpdateInstaller(store: store,
-                                                                  system: AppleUpdateSystem(signal: signal,
-                                                                                            applicationsBundleIDs: macApplicationsBundleIDs),
-                                                                  // The update handler as it is when go ahead comes
-                                                                  // (registered before start or after), else the
-                                                                  // Mac's way through Applications.
-                                                                  handler: { update in
-                                                                      if let handler = await MainActor.run(body: { AppUpdates.handler }) {
-                                                                          try await handler(update)
-                                                                      } else {
-                                                                          try await AppUpdates.installThroughApplications(update)
-                                                                      }
-                                                                  }, requester: app.bundleID),
-                                       system: AppleUpdateSystem(signal: signal, applicationsBundleIDs: macApplicationsBundleIDs),
-                                       // Looked up as each offer comes, not when start ran: a
-                                       // handler registered after start is asked all the same,
-                                       // never go ahead in its place.
-                                       handler: { offer in await (AppUpdates.autoUpdateHandler?(offer) ?? .goAhead) },
-                                       installHook: { offer in await AppUpdates.autoUpdateInstaller?(offer) })
-        Self.responder = responder
-        Task {
-            do { try await responder.launched() } catch { log.error("The offer was not looked at: \(String(describing: error), privacy: .public)") }
-        }
-        offersWatch = Task {
-            for await _ in signal.changes() {
-                do { try await responder.look() } catch { log.error("The offer was not looked at: \(String(describing: error), privacy: .public)") }
-            }
+        let log = Self.log
+        Task { @MainActor in
+            offersWatch = await session.answerOffers { note in log.error("\(note, privacy: .public)") }
         }
         #endif
         guard tellsOfUpdates else { return }
@@ -172,9 +150,9 @@ public final class AppUpdates {
 
     /// Checks again now.
     public static func check() async {
-        guard let checker else { return }
+        guard let session else { return }
         do {
-            let found = try await checker.check()
+            let found = try await session.check()
             UpdateStatus.shared.found(found)
         } catch {
             log.error("The update check failed: \(String(describing: error), privacy: .public)")
@@ -184,11 +162,9 @@ public final class AppUpdates {
     /// Installs an update: the handler's way, iOS's install link, or
     /// Applications asked and the app quit (`UpdateInstaller`).
     public static func install(_ update: AvailableUpdate) async {
-        guard let store, let signal, let checker else { return }
-        let installer = UpdateInstaller(store: store, system: AppleUpdateSystem(signal: signal, applicationsBundleIDs: macApplicationsBundleIDs),
-                                        handler: handler, requester: checker.app.bundleID)
+        guard let session else { return }
         do {
-            _ = try await installer.install(update)
+            _ = try await session.install(update)
         } catch {
             log.error("The update did not install: \(String(describing: error), privacy: .public)")
         }
@@ -202,10 +178,8 @@ public final class AppUpdates {
     /// again. On an iPhone or an iPad it opens the install link, as
     /// `install` does.
     public static func installThroughApplications(_ update: AvailableUpdate) async throws {
-        guard let store, let signal, let checker else { throw UpdateInstallError.notStarted }
-        let installer = UpdateInstaller(store: store, system: AppleUpdateSystem(signal: signal, applicationsBundleIDs: macApplicationsBundleIDs),
-                                        handler: nil, requester: checker.app.bundleID)
-        _ = try await installer.install(update)
+        guard let session else { throw UpdateInstallError.notStarted }
+        _ = try await session.installThroughApplications(update)
     }
 
     // MARK: For an app with a notification delegate of its own
