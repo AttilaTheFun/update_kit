@@ -1,18 +1,18 @@
 # Update Kit's CI, under the owner's CI policy (2026-11-07): automated runs
 # (pull requests, main) only build, on Linux and on Apple's platforms; the
-# tests run by hand alone (`run: verify`). The job names linux and
-# ios-tests are the checks main's protection requires. Every job runs in
-# Shireworks' single-use Linux containers (update_kit-jit; the small one
-# for script-only jobs) and leases nothing, as the owner's CI rule has it
-# (2026-11-13: "all in containers"): the tests run on Linux under SwiftPM,
-# and the library is built for iOS and macOS there by Bazel with
-# rules_applecross (tools/ci/container_build.sh, MODULE.bazel). Update Kit
-# has no GUI, so no job needs a Mac or GitHub's hosted runners. A fork's
-# pull request runs nothing: a self-hosted runner never runs a fork's code.
+# tests run by hand alone (`run: verify`). The job name linux is the check
+# main's protection requires. Update Kit is public, so every job runs on
+# GitHub's hosted runners alone, never Shireworks' (the owner's rule,
+# 2026-11-13/15: public repositories run purely through GitHub): Linux
+# jobs on Ubuntu in Swift's image (by digest), and the Apple build on an
+# xcode-27 Mac only when verifying (`apple-verify`), never on every pull
+# request. No job uses a key: the release job's draft is made with the
+# job's own token.
 # By hand (README, "Releasing"):
 # - verify (`run: verify`): the tests on Linux, their output kept, and a
 #   proof of them in format 2 (tools/ci/proof.sh),
-#   uploaded as the run's `proof` artifact, which Reviews shows;
+#   uploaded as the run's `proof` artifact, which Reviews shows; and the
+#   library built for iOS and macOS on an xcode-27 Mac (`apple-verify`);
 # - release (`run: release`, on main, with `version`): verify, then the
 #   draft "UpdateKit <version>" proposed with that proof as proof.zip
 #   (tools/ci/propose.sh). The owner releases it in Reviews, which makes
@@ -43,8 +43,10 @@ permissions:
   contents: read
 jobs:
   linux:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, update_kit-jit]
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    container:
+      image: swift:6.4.2-noble@sha256:23d9b28ad97fb1cf1999edc3a0cb265ee915ed42299a9344e7173d5a6d2b05f4
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -52,21 +54,31 @@ jobs:
       - run: |
           swift --version
           swift build --build-tests
-  # The library built for iOS and macOS (what the apps' builds take), in
-  # the container, by Bazel with Apple's SDKs on Linux: no Mac.
-  ios-tests:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, update_kit-jit]
+  # The library built for macOS (its tests too) and for the iOS simulator
+  # (what the apps' builds take), on GitHub's xcode-27 Mac, when verifying
+  # only: never on every pull request (the owner, 2026-11-13: Apple runners
+  # are the bottleneck).
+  apple-verify:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: xcode-27
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      # exec: the runner's cancel reaches Bazel.
-      - run: exec tools/ci/container_build.sh
+      - run: swift build --build-tests
+      # The scheme Xcode makes for the package, by name as it lists it.
+      - run: |
+          set -o pipefail
+          xcodebuild -list -json > "$RUNNER_TEMP/schemes.json"
+          scheme="$(python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); s = (d.get("workspace") or d.get("project"))["schemes"]; p = [n for n in s if n.endswith("-Package")] or [n for n in s if n == "UpdateKit"] or s; print(p[0])' "$RUNNER_TEMP/schemes.json")"
+          echo "Building $scheme for the iOS simulator"
+          xcodebuild build -quiet -scheme "$scheme" -destination 'generic/platform=iOS Simulator'
   # The tests, by hand, on Linux, before a version is tagged: their output
   # and exit status kept for the proof.
   verify-linux:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, update_kit-jit]
+    runs-on: ubuntu-24.04
+    container:
+      image: swift:6.4.2-noble@sha256:23d9b28ad97fb1cf1999edc3a0cb265ee915ed42299a9344e7173d5a6d2b05f4
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -90,7 +102,7 @@ jobs:
   proof:
     needs: verify-linux
     if: always() && github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, update_kit-jit-small]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -122,11 +134,11 @@ jobs:
           retention-days: 90
           if-no-files-found: error
   # A release proposed (`run: release`, on main): the proof, zipped, on the
-  # draft. Never published here.
+  # draft, once the Apple build passed too. Never published here.
   release:
-    needs: proof
+    needs: [proof, apple-verify]
     if: github.event_name == 'workflow_dispatch' && inputs.run == 'release' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, update_kit-jit-small]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
