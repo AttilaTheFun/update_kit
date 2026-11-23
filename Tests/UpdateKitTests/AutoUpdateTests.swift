@@ -60,6 +60,7 @@ final class AutoUpdateTests: XCTestCase {
 
     func testADatabaseAtTheThirdMigrationKeepsItsOffersThroughTheFourth() async throws {
         // A database the third migration left, with an app and an offer in it.
+        try FileManager.default.createDirectory(at: temporary.file.deletingLastPathComponent(), withIntermediateDirectories: true)
         let database = try Database(path: temporary.file.path)
         try database.withConnection { connection in
             for migration in StoreSchema.migrations.prefix(3) { try connection.execute(migration) }
