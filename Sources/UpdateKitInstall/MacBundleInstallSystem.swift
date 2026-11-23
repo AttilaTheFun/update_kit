@@ -13,7 +13,7 @@ import Security
 /// certificate claiming the team doesn't pass; by default also the team's Developer ID Application certificate and
 /// notarization, refused when notarization can't be checked. A service with no team (an ad hoc test build) installs
 /// only with `adHocForTests`, which only a debug build of this library honours.
-public struct MacBundleInstallSystem: BundleInstallSystem {
+public struct MacBundleInstallSystem: BundleInstallSystem, Sendable {
     public struct Failure: Error, CustomStringConvertible {
         public let description: String
     }
@@ -140,8 +140,15 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
     /// What errno says.
     static func errorText(_ code: Int32 = errno) -> String { String(cString: strerror(code)) }
 
-    public func unpack(zip: String, into folder: String, timeLimit: TimeInterval) throws {
-        let result = Self.run("/usr/bin/ditto", ["-x", "-k", "--noqtn", zip, folder], timeLimit: timeLimit)
+    public func unpack(zip: String, into folder: String, timeLimit: TimeInterval, maxBytes: Int) throws {
+        // What it has written looked at each second: a zip whose directory says less than it holds is stopped once it
+        // has written more than is allowed, not once the disk is full.
+        let me = self
+        let result = Self.run("/usr/bin/ditto", ["-x", "-k", "--noqtn", zip, folder], timeLimit: timeLimit,
+                              stopWhen: { me.size(of: folder) > maxBytes })
+        if result.stoppedEarly {
+            throw InstallRefusal(.tooLarge, "The build unpacks to more than this installer takes, so its unpacking was stopped.")
+        }
         guard !result.timedOut else {
             throw InstallRefusal(.unpackTimedOut, "Unpacking the build took longer than \(Int(timeLimit)) seconds, so it was stopped.")
         }
@@ -274,33 +281,41 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
     }
 
     /// A program's status and its output (standard output and error together). With a time limit, a program still
-    /// running at its end is stopped (SIGTERM, then SIGKILL five seconds later), and `timedOut` says so.
-    static func run(_ path: String, _ arguments: [String], timeLimit: TimeInterval? = nil)
-        -> (status: Int32, output: String, timedOut: Bool) {
-        guard FileManager.default.isExecutableFile(atPath: path) else { return (-1, "\(path) isn't there", false) }
+    /// running at its end is stopped (SIGTERM, then SIGKILL five seconds later), and `timedOut` says so; with
+    /// `stopWhen`, asked each second while it runs, it is stopped the same way once that says so (`stoppedEarly`).
+    /// The watching thread is its own (never one of Dispatch's shared workers), and ends as the program does.
+    static func run(_ path: String, _ arguments: [String], timeLimit: TimeInterval? = nil, stopWhen: (@Sendable () -> Bool)? = nil)
+        -> (status: Int32, output: String, timedOut: Bool, stoppedEarly: Bool) {
+        guard FileManager.default.isExecutableFile(atPath: path) else { return (-1, "\(path) isn't there", false, false) }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
-        do { try process.run() } catch { return (-1, "\(error)", false) }
+        do { try process.run() } catch { return (-1, "\(error)", false, false) }
         let run = RunState()
-        if let timeLimit {
-            // Its own thread, sleeping, never one of Dispatch's shared workers.
+        let ended = DispatchSemaphore(value: 0)
+        if timeLimit != nil || stopWhen != nil {
             let pid = process.processIdentifier
+            let deadline = timeLimit.map { Date().addingTimeInterval($0) }
             Thread.detachNewThread {
-                Thread.sleep(forTimeInterval: timeLimit)
-                guard run.stop() else { return }
+                var early = false
+                // Woken each second, or at once when the program ends.
+                while ended.wait(timeout: .now() + 1) == .timedOut {
+                    if let deadline, Date() >= deadline { break }
+                    if let stopWhen, stopWhen() { early = true; break }
+                }
+                guard run.stop(early: early) else { return }
                 kill(pid, SIGTERM)
-                Thread.sleep(forTimeInterval: 5)
-                if !run.finished { kill(pid, SIGKILL) }
+                if ended.wait(timeout: .now() + 5) == .timedOut, !run.finished { kill(pid, SIGKILL) }
             }
         }
         let output = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         run.finish()
-        return (process.terminationStatus, String(decoding: output, as: UTF8.self), run.stopped)
+        ended.signal()
+        return (process.terminationStatus, String(decoding: output, as: UTF8.self), run.stopped && !run.early, run.early)
     }
 
     /// A run's state for its time limit, which is checked on another thread than the one waiting: whether the program
@@ -310,12 +325,14 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
         private let lock = NSLock()
         private var isFinished = false
         private var wasStopped = false
+        private var wasEarly = false
 
-        /// Marks it stopped by the limit: false (and nothing marked) once it has finished.
-        func stop() -> Bool {
+        /// Marks it stopped (`early`: by `stopWhen`, not the time limit): false (and nothing marked) once it has finished.
+        func stop(early: Bool = false) -> Bool {
             lock.withLock {
                 guard !isFinished else { return false }
                 wasStopped = true
+                wasEarly = early
                 return true
             }
         }
@@ -323,6 +340,7 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
         func finish() { lock.withLock { isFinished = true } }
         var finished: Bool { lock.withLock { isFinished } }
         var stopped: Bool { lock.withLock { wasStopped } }
+        var early: Bool { lock.withLock { wasEarly } }
     }
 
     /// How this service is signed: by a team (every published build), ad hoc (a test build), or unreadably (then it

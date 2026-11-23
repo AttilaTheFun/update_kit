@@ -36,10 +36,17 @@ public struct MacWatchSystem: WatchSystem {
         guard folder >= 0 else { throw failure() }
         defer { close(folder) }
         let name = (path as NSString).lastPathComponent, temporary = ".\(name).\(UUID().uuidString)"
+        // What a write cut off left (the watcher killed mid-write) goes first.
+        for entry in files.entries(of: (path as NSString).deletingLastPathComponent) where entry.hasPrefix(".\(name).") {
+            unlinkat(folder, entry, 0)
+        }
         let file = openat(folder, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard file >= 0 else { throw failure() }
         do {
-            try FileHandle(fileDescriptor: file, closeOnDealloc: true).write(contentsOf: Data(text.utf8))
+            let handle = FileHandle(fileDescriptor: file, closeOnDealloc: true)
+            try handle.write(contentsOf: Data(text.utf8))
+            // On disk before it takes the note's name.
+            try handle.synchronize()
         } catch {
             unlinkat(folder, temporary, 0)
             throw error

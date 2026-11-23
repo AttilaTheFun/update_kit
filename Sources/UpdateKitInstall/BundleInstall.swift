@@ -82,7 +82,7 @@ public enum BundleInstall {
         let unpacked = "\(folder)/\(unpackedName)"
         do {
             try system.createFolder(unpacked)
-            try system.unpack(zip: copy, into: unpacked, timeLimit: policy.unpackTimeLimit)
+            try system.unpack(zip: copy, into: unpacked, timeLimit: policy.unpackTimeLimit, maxBytes: policy.maxUnpackedBytes)
         } catch let refusal as InstallRefusal {
             return .failure(refusal)
         } catch {

@@ -39,7 +39,9 @@ an unknown code decodes as `.unknown`), with nothing after it done:
    the unpacking;
 4. the copy, unpacked into its own subfolder by `ditto -x -k --noqtn`
    within the policy's `unpackTimeLimit` (five minutes; a stuck ditto is
-   stopped), comes to no more than `maxUnpackedBytes` and holds exactly
+   stopped), and stopped too once it has written more than
+   `maxUnpackedBytes` (looked at each second: a zip whose directory says
+   less than it holds), comes to no more than `maxUnpackedBytes` and holds exactly
    one app, which is a folder itself, never a link to one;
 5. its signature passes the policy's `signing`. It's valid (strict, every
    architecture, nested code), and meets a requirement that always names
@@ -129,7 +131,11 @@ link, and never through a link themselves; the note is written whole,
 into a new file renamed over it. They're the policy's, never the app's
 to choose, so put each directly in a folder the sandboxed app can't write
 or replace, nor any folder above it (never in its container or an app
-group's).
+group's). The app reads the note through its service (`note(remove:)`),
+since it can't read that folder itself. If launchd ends the service as the
+app quits, before the watcher has taken the lock over, the lock is the
+service's own until its pid is gone, which only blocks installs for that
+moment.
 
 The service checks the watch first (`StayUpWatcher.checked`): its app is
 the policy's at its destination, its backup is one the service keeps,

@@ -99,7 +99,7 @@ final class FakeInstallMac: BundleInstallSystem {
         return copy
     }
 
-    func unpack(zip: String, into folder: String, timeLimit: TimeInterval) throws {
+    func unpack(zip: String, into folder: String, timeLimit: TimeInterval, maxBytes: Int) throws {
         steps.append(.unpack(zip))
         if let unpackFails { throw unpackFails }
         for entry in contents[zip] ?? [] { apps["\(folder)/\(entry.name)"] = entry.app }

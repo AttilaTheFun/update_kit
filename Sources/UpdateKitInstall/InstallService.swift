@@ -12,6 +12,9 @@ import Foundation
     func discard(_ backup: String, reply: @escaping @Sendable (Bool) -> Void)
     /// A `StayUpWatch`: replies with an `InstallReply<Bool>` (true once the watcher is started).
     func watch(_ watch: Data, reply: @escaping @Sendable (Data) -> Void)
+    /// The last watch's note (`WatchNote`'s JSON), nil when there's none; with `remove`, removed once read (the app
+    /// reads it at its next launch, from where the policy keeps it, which the sandboxed app can't read itself).
+    func note(remove: Bool, reply: @escaping @Sendable (Data?) -> Void)
 }
 
 /// A reply: the value, or the refusal.
@@ -142,6 +145,14 @@ public final class UpdateKitInstallHandler: NSObject, UpdateKitInstallXPC, @unch
         }
     }
 
+    public func note(remove: Bool, reply: @escaping @Sendable (Data?) -> Void) {
+        serially { [self] in
+            guard let path = policy.watchNotePath, let data = files.read(path), WatchNote.decoded(data) != nil else { return reply(nil) }
+            if remove { files.remove(path) }
+            reply(data)
+        }
+    }
+
     func decode<Value: Decodable>(_ type: Value.Type, _ data: Data) -> Result<Value, InstallRefusal> {
         do { return .success(try JSONDecoder().decode(type, from: data)) } catch {
             return .failure(InstallRefusal(.badRequest, "The installer couldn't read what it was asked."))
@@ -175,6 +186,18 @@ public struct UpdateKitInstallClient: Sendable {
             proxy.discard(backup) { discarded in done(UpdateKitInstallHandler.encode(InstallReply(.success(discarded)))) }
         }
         return (try? result.get()) ?? false
+    }
+
+    /// The last watch's outcome, for the app's launch after an update (nil: none, or the service can't be reached);
+    /// with `remove`, said once.
+    public func note(remove: Bool = true) async -> WatchNote? {
+        let result: Result<Data, InstallRefusal> = await call { proxy, done in
+            proxy.note(remove: remove) { data in
+                done(UpdateKitInstallHandler.encode(data.map { InstallReply<Data>(.success($0)) }
+                    ?? InstallReply<Data>(.failure(InstallRefusal(.noWatches, "No note.")))))
+            }
+        }
+        return (try? result.get()).flatMap(WatchNote.decoded)
     }
 
     /// Starts the watcher. Quit the app only once it's started: a refused watch leaves nothing to reopen it.
