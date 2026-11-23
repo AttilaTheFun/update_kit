@@ -8,7 +8,7 @@ no Applications running (or none installed) never hears of one. With a
 GitHub sign-in the app already holds, it can ask GitHub itself.
 
 It learns only: nothing new is shown or installed. What reads `latest_*`
-today (the app's own update handler, Applications' tab, Shireworks' own
+today (the app's own update handler, Applications, the distributor's own
 self-update) sees the update sooner.
 
 ## What the app says
