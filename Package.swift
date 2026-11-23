@@ -13,6 +13,10 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "UpdateKit", targets: ["UpdateKit"]),
+        // An installer service's rules and its Mac (docs/Installing.md): for the
+        // unsandboxed service inside a sandboxed app, which links nothing else of
+        // the package.
+        .library(name: "UpdateKitInstall", targets: ["UpdateKitInstall"]),
     ],
     dependencies: [
         // A range, not one version: the apps pin swift_sql themselves, and
@@ -23,6 +27,10 @@ let package = Package(
         .target(
             name: "UpdateKit",
             dependencies: [.product(name: "SwiftSQL", package: "swift_sql")]),
+        .target(name: "UpdateKitInstall"),
+        .testTarget(
+            name: "UpdateKitInstallTests",
+            dependencies: ["UpdateKitInstall"]),
         .testTarget(
             name: "UpdateKitTests",
             dependencies: ["UpdateKit", .product(name: "SwiftSQL", package: "swift_sql")]),
