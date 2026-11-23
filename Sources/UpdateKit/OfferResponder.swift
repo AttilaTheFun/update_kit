@@ -15,6 +15,8 @@ public final class OfferResponder {
     public let system: any UpdateSystem
     let handler: AutoUpdateHandler?
     let installHook: AutoUpdateInstaller?
+    /// Whether the app, installing itself, takes its build as its zip.
+    let installsFromZip: Bool
     /// The offer being answered or installed, so a signal heard meanwhile
     /// doesn't ask the handler twice.
     private var busy: Set<String> = []
@@ -23,13 +25,14 @@ public final class OfferResponder {
     private var hooked: Set<String> = []
 
     public init(store: AppGroupStore, app: InstalledApp, installer: UpdateInstaller, system: any UpdateSystem,
-                handler: AutoUpdateHandler?, installHook: AutoUpdateInstaller?) {
+                handler: AutoUpdateHandler?, installHook: AutoUpdateInstaller?, installsFromZip: Bool = false) {
         self.store = store
         self.app = app
         self.installer = installer
         self.system = system
         self.handler = handler
         self.installHook = installHook
+        self.installsFromZip = installsFromZip
     }
 
     /// At launch: says this app answers offers, settles one it was
@@ -37,7 +40,7 @@ public final class OfferResponder {
     /// an install may not be the one that finds out how it went), then
     /// looks at the offer as it stands.
     public func launched() async throws {
-        try await store.recordAnswersOffers(bundleID: app.bundleID)
+        try await store.recordAnswersOffers(bundleID: app.bundleID, installsFromZip: installsFromZip)
         if let offer = try await store.offer(bundleID: app.bundleID) {
             try await settle(offer)
         }

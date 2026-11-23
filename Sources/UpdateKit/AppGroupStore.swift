@@ -186,14 +186,25 @@ public actor AppGroupStore {
 
     /// Says that this app answers offers (UpdateKit 0.13 and later), at its
     /// launch: Applications then asks it, while it runs, rather than waiting
-    /// for it to quit.
-    public func recordAnswersOffers(bundleID: String) throws {
+    /// for it to quit. And whether, installing itself, it takes its build as
+    /// its zip (UpdateKit 0.18: `UpdateKitInfo.installsFromZipKey`).
+    public func recordAnswersOffers(bundleID: String, installsFromZip: Bool = false) throws {
         let time = now().timeIntervalSince1970
         try withConnection { connection in
             try connection.run("""
-                INSERT INTO apps (bundle_id, answers_offers, updated_at) VALUES (?1, 1, ?2)
-                ON CONFLICT (bundle_id) DO UPDATE SET answers_offers = 1 WHERE answers_offers IS NOT 1
-                """, bundleID, time)
+                INSERT INTO apps (bundle_id, answers_offers, installs_from_zip, updated_at) VALUES (?1, 1, ?2, ?3)
+                ON CONFLICT (bundle_id) DO UPDATE SET answers_offers = 1, installs_from_zip = ?2
+                WHERE answers_offers IS NOT 1 OR installs_from_zip IS NOT ?2
+                """, bundleID, installsFromZip ? 1 : 0, time)
+        }
+    }
+
+    /// Whether an app that installs itself has said it takes its build as
+    /// its zip: Applications then hands it the checked zip, for its own
+    /// installer service, rather than installing the build for it.
+    public func installsFromZip(bundleID: String) throws -> Bool {
+        try withConnection { connection in
+            try connection.query("SELECT installs_from_zip FROM apps WHERE bundle_id = ?1", bundleID) { $0.int(0) }.first == 1
         }
     }
 

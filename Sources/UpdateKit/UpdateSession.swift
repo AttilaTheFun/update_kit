@@ -76,7 +76,8 @@ public final class UpdateSession {
         })
         let responder = OfferResponder(store: store, app: app, installer: goAhead, system: system,
                                        handler: { [weak self] offer in await (self?.autoUpdate()?(offer) ?? .goAhead) },
-                                       installHook: { [weak self] offer in await self?.installHook()?(offer) })
+                                       installHook: { [weak self] offer in await self?.installHook()?(offer) },
+                                       installsFromZip: UpdateKitInfo.mainInstallsFromZip)
         self.responder = responder
         do { try await responder.launched() } catch { failed("The offer was not looked at: \(error)") }
         let signal = self.signal

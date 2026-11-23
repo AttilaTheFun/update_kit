@@ -56,6 +56,13 @@ enum StoreSchema {
             updated_at REAL NOT NULL
         );
         """,
+        // 4: which apps that install themselves take their build as its zip
+        // (UpdateKit 0.18, their Info.plist's UpdateKitInstallsFromZip),
+        // which their own installer service unpacks outside the sandbox
+        // (docs/Installing.md), written at launch with answers_offers.
+        """
+        ALTER TABLE apps ADD COLUMN installs_from_zip INTEGER;
+        """,
     ]
 
     /// Write-ahead logging, so one app reads while another writes (the mode

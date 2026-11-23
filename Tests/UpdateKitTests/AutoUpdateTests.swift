@@ -29,10 +29,39 @@ final class AutoUpdateTests: XCTestCase {
 
     // MARK: The database
 
-    func testTheDatabaseMovesToItsThirdMigration() async throws {
+    func testTheDatabaseMovesToItsFourthMigration() async throws {
         _ = try await store().records()
         let database = try Database(path: temporary.file.path)
-        XCTAssertEqual(try database.query("PRAGMA user_version") { $0.int(0) }, [3])
+        XCTAssertEqual(try database.query("PRAGMA user_version") { $0.int(0) }, [4])
+    }
+
+    func testAnAppSaysItTakesItsBuildAsItsZip() async throws {
+        let store = store()
+        try await store.recordAnswersOffers(bundleID: visor)
+        var fromZip = try await store.installsFromZip(bundleID: visor)
+        XCTAssertFalse(fromZip, "an app that doesn't say so is handed nothing but what it always was")
+        try await store.recordAnswersOffers(bundleID: visor, installsFromZip: true)
+        fromZip = try await store.installsFromZip(bundleID: visor)
+        XCTAssertTrue(fromZip)
+        // A build without the key, launched again, says so too.
+        try await store.recordAnswersOffers(bundleID: visor, installsFromZip: false)
+        fromZip = try await store.installsFromZip(bundleID: visor)
+        XCTAssertFalse(fromZip)
+        // Its launch says it, as it says it answers offers.
+        let system = FakeSystem()
+        let app = InstalledApp(bundleID: visor, version: "0.67.0", build: "1")
+        let installer = UpdateInstaller(store: store, system: system, platform: .macOS, handler: nil, requester: visor)
+        try await OfferResponder(store: store, app: app, installer: installer, system: system, handler: nil, installHook: nil,
+                                 installsFromZip: true).launched()
+        fromZip = try await store.installsFromZip(bundleID: visor)
+        XCTAssertTrue(fromZip)
+    }
+
+    func testTheInfoPlistKeySaysItTakesItsZip() {
+        XCTAssertTrue(UpdateKitInfo.installsFromZip(in: [UpdateKitInfo.installsFromZipKey: true]))
+        XCTAssertFalse(UpdateKitInfo.installsFromZip(in: [UpdateKitInfo.installsFromZipKey: false]))
+        XCTAssertFalse(UpdateKitInfo.installsFromZip(in: [:]))
+        XCTAssertFalse(UpdateKitInfo.installsFromZip(in: nil))
     }
 
     func testUpdateAutomaticallyIsOffUntilTurnedOn() async throws {

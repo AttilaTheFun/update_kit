@@ -165,6 +165,18 @@ offer, on the main actor; without one, go ahead:
           relaunch(from: offer.bundle!)           // Visor: POST /api/restart
       })
 
+  **An app that is sandboxed** can't install an unpacked bundle: one a
+  sandboxed process unpacked won't open, and it can't replace itself in
+  /Applications. Since 0.18 such an app says so in its Info.plist,
+  `UpdateKitInstallsFromZip`, YES (recorded at launch, migration 4), and
+  Applications hands it the build's checked **zip** instead, in the
+  group's container, as the offer's `bundle`. The app gives it to its own
+  unsandboxed installer service (UpdateKitInstall, docs/Installing.md),
+  which checks it, puts it in place and watches it stay up. An app that
+  answers `.installMyself` without the key isn't handed a bundle by
+  Applications 0.20.2 and later: Applications quits it, installs the build
+  and opens it again, as for go-ahead.
+
   The process that installs isn't the one that can say it worked, so the
   next launch does: the build offered running, **installed**; the older one
   after `installing()`, **failed** (and the app adds why, at that launch,
