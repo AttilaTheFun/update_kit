@@ -27,6 +27,11 @@ public final class AppUpdates {
     private static var session: UpdateSession?
     private static var responder: OfferResponder? { session?.responder }
     private static var offersWatch: Task<Void, Never>?
+    private static var token: ReleaseChecker.Token?
+    /// The direct check of the app's releases, at start and hourly after.
+    private static var releasesWatch: Task<Void, Never>?
+    /// How long between direct checks of the app's releases.
+    private static let releasesInterval: UInt64 = 3_600_000_000_000
     private static let log = Logger(subsystem: "UpdateKit", category: "updates")
 
     private init() {}
@@ -36,6 +41,18 @@ public final class AppUpdates {
     /// Applications and quitting. Register before `start`.
     public static func register(updateHandler: @escaping UpdateHandler) {
         handler = updateHandler
+    }
+
+    /// The GitHub token the app holds (its own sign-in's), for the direct
+    /// check of its releases (docs/DirectReleases.md): with it, and a
+    /// releases repository in the Info.plist
+    /// (`UpdateKitInfo.releasesRepositoryKey`), the app checks its own
+    /// releases at start and at most once an hour after, while it runs, and
+    /// writes a newer build it finds to the database, as Applications would.
+    /// It shows and installs nothing. An empty token (signed out) checks
+    /// nothing. Register before `start`.
+    public static func register(token provider: @escaping ReleaseChecker.Token) {
+        token = provider
     }
 
     // MARK: Updating automatically (a Mac)
@@ -108,6 +125,20 @@ public final class AppUpdates {
                                     installHook: { AppUpdates.autoUpdateInstaller })
         Self.session = session
         Task { await check() }
+        if let repository = UpdateKitInfo.mainReleasesRepository, let token {
+            let checker = ReleaseChecker(repository: repository, token: token)
+            let log = Self.log
+            releasesWatch = Task { @MainActor in
+                while !Task.isCancelled {
+                    do {
+                        try await session.checkReleases(checker)
+                    } catch {
+                        log.info("The releases were not checked: \(String(describing: error), privacy: .public)")
+                    }
+                    try? await Task.sleep(nanoseconds: releasesInterval)
+                }
+            }
+        }
         // Offers are a Mac's: answered at launch and on each signal, by
         // every app (Applications too, of its own updates).
         #if os(macOS)

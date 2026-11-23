@@ -45,6 +45,21 @@ public final class UpdateSession {
         try await checker.check()
     }
 
+    /// The app's own releases checked (`ReleaseChecker`, learn only): a
+    /// newer build found is written to the database where the row knows of
+    /// none as new (`AppGroupStore.offerLatest`), and then, as after an
+    /// Applications sync, the group is told (the app's own offers looked at
+    /// again, Applications' tab) and the check runs again. Whether it was
+    /// written.
+    @discardableResult
+    public func checkReleases(_ checker: ReleaseChecker) async throws -> Bool {
+        guard let latest = try await checker.check(app: app, platform: platform.releasePlatform),
+              try await store.offerLatest(latest) else { return false }
+        signal.post()
+        _ = try await check()
+        return true
+    }
+
     /// Installs an update: the update handler's way, if one is registered,
     /// else the platform's (`UpdateInstaller`).
     @discardableResult

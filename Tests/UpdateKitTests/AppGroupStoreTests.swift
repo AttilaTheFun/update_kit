@@ -169,4 +169,53 @@ final class AppGroupStoreTests: XCTestCase {
         let left = try await store.installRequests()
         XCTAssertEqual(left, [])
     }
+
+    // MARK: A build learned directly (offerLatest)
+
+    /// An app's own check writes a newer build where the row knows of none,
+    /// with no install link: one of an older build isn't left beside it.
+    func testABuildLearnedDirectlyIsWrittenWhereItIsNewer() async throws {
+        let store = store()
+        let link = URL(string: "https://example.com/app-1.0.zip")
+        try await store.setLatest([LatestBuild(bundleID: "com.example.App", version: "1.0", build: "1", installURL: link)])
+        let newer = try await store.offerLatest(LatestBuild(bundleID: "com.example.App", version: "1.1", build: "1", installURL: nil))
+        XCTAssertTrue(newer)
+        let record = try await store.record(bundleID: "com.example.App")
+        XCTAssertEqual(record?.latestVersion, "1.1")
+        XCTAssertNil(record?.installURL, "the older build's link cleared")
+
+        let unknown = try await store.offerLatest(LatestBuild(bundleID: "com.example.Other", version: "0.1", build: nil, installURL: nil))
+        XCTAssertTrue(unknown, "a row with no newest build takes one")
+        let other = try await store.record(bundleID: "com.example.Other")
+        XCTAssertEqual(other?.latestVersion, "0.1")
+    }
+
+    /// It never lowers what Applications wrote: the same build or an older
+    /// one leaves the row, its install link too.
+    func testABuildLearnedDirectlyNeverLowersTheNewest() async throws {
+        let store = store()
+        let link = URL(string: "https://example.com/app-2.0.zip")
+        try await store.setLatest([LatestBuild(bundleID: "com.example.App", version: "2.0", build: "5", installURL: link)])
+        let same = try await store.offerLatest(LatestBuild(bundleID: "com.example.App", version: "2.0", build: "5", installURL: nil))
+        let older = try await store.offerLatest(LatestBuild(bundleID: "com.example.App", version: "1.9", build: "9", installURL: nil))
+        let olderBuild = try await store.offerLatest(LatestBuild(bundleID: "com.example.App", version: "2.0", build: "4", installURL: nil))
+        XCTAssertEqual([same, older, olderBuild], [false, false, false])
+        let record = try await store.record(bundleID: "com.example.App")
+        XCTAssertEqual(record?.latest, AppVersion("2.0", build: "5"))
+        XCTAssertEqual(record?.installURL, link)
+
+        let newerBuild = try await store.offerLatest(LatestBuild(bundleID: "com.example.App", version: "2.0", build: "6", installURL: nil))
+        XCTAssertTrue(newerBuild)
+    }
+
+    /// The installed build an app wrote stays as it was.
+    func testABuildLearnedDirectlyLeavesTheInstalledBuild() async throws {
+        let store = store()
+        try await store.recordInstalled(bundleID: "com.example.App", version: "1.0", build: "1", variant: "Beta")
+        try await store.offerLatest(LatestBuild(bundleID: "com.example.App", version: "1.2", build: "3", installURL: nil))
+        let record = try await store.record(bundleID: "com.example.App")
+        XCTAssertEqual(record?.installed, AppVersion("1.0", build: "1"))
+        XCTAssertEqual(record?.installedVariant, "Beta")
+        XCTAssertEqual(record?.updateAvailable, true)
+    }
 }

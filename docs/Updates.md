@@ -75,6 +75,10 @@ the main actor), and decides whether Applications knows of a newer one
 build). It tells of nothing (0.17.0: the notification, the banner and the
 version section are gone).
 
+Given a GitHub token and its releases repository (0.19), an app also checks
+its own releases and writes a newer build it finds to the database, where
+Applications' row knows of none as new (docs/DirectReleases.md).
+
 An update installs (`UpdateInstaller`, when the app's own handler or
 Applications' offer calls for it):
 
