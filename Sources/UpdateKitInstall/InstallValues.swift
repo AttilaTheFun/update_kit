@@ -19,15 +19,20 @@ public struct InstallPolicy: Sendable, Codable, Equatable {
     /// What an app's earlier bundle ids added to its own (`.Beta`, say): a copy at the app's name with one of them is
     /// the same app, which an install replaces.
     public var earlierIDSuffixes: [String]
+    /// The folders a watch's lock and note may be in (with the zip folders), links resolved: the unsandboxed service
+    /// writes them, so never where the app alone chose.
+    public var watchFolders: [String]
 
     public init(bundleIDPrefix: String, zipFolders: [String], applications: String = "/Applications",
-                unpackTimeLimit: TimeInterval = 300, backupLifetime: TimeInterval = 86_400, earlierIDSuffixes: [String] = []) {
+                unpackTimeLimit: TimeInterval = 300, backupLifetime: TimeInterval = 86_400, earlierIDSuffixes: [String] = [],
+                watchFolders: [String] = []) {
         self.bundleIDPrefix = bundleIDPrefix
         self.zipFolders = zipFolders
         self.applications = applications
         self.unpackTimeLimit = unpackTimeLimit
         self.backupLifetime = backupLifetime
         self.earlierIDSuffixes = earlierIDSuffixes
+        self.watchFolders = watchFolders
     }
 
     /// Whether `other` is `bundleID`'s app: the same id, or one of its earlier ones.
