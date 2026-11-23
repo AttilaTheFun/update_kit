@@ -87,22 +87,44 @@ public enum UpdateKitInstallService {
     }
 }
 
-/// The service's side: `UpdateKitInstallXPC` carried out with its own policy, one call at a time (an install's swap,
-/// a restore and a sweep never overlap), each on a thread of its own: an unpacking may take minutes, which no Dispatch
-/// worker shared with the rest of the process is kept waiting for.
+/// The service's side: `UpdateKitInstallXPC` carried out with its own policy, one call at a time and in the order they
+/// came (an install's swap, a restore and a sweep never overlap, and an install then its restore never run the other way
+/// round), on a thread of the service's own: an unpacking may take minutes, which no Dispatch worker shared with the
+/// rest of the process is kept waiting for.
 public final class UpdateKitInstallHandler: NSObject, UpdateKitInstallXPC, @unchecked Sendable {
     public let policy: InstallPolicy
     let files: MacBundleInstallSystem
-    private let oneAtATime = NSLock()
+    /// Guards `waiting` and `running`.
+    private let calls = NSLock()
+    /// The calls not yet run, the first first.
+    private var waiting: [@Sendable () -> Void] = []
+    /// Whether a thread is running them.
+    private var running = false
 
-    /// `work` on a thread of its own, once no other call's is running.
-    private func serially(_ work: @escaping @Sendable () -> Void) {
-        let lock = oneAtATime
-        Thread.detachNewThread {
-            lock.lock()
-            defer { lock.unlock() }
-            work()
+    /// `work` after every call that came before it, one at a time, on a thread of its own: one started when there's
+    /// none, which runs what's waiting in order, then ends. (A thread a call each, waiting on a lock, ran them in
+    /// whatever order the lock woke them: NSLock isn't first come, first served.)
+    func serially(_ work: @escaping @Sendable () -> Void) {
+        calls.lock()
+        waiting.append(work)
+        let start = !running
+        running = true
+        calls.unlock()
+        guard start else { return }
+        Thread.detachNewThread { [self] in
+            while let next = nextCall() { next() }
         }
+    }
+
+    /// The first call waiting, taken; none, and the thread running them ends.
+    private func nextCall() -> (@Sendable () -> Void)? {
+        calls.lock()
+        defer { calls.unlock() }
+        guard !waiting.isEmpty else {
+            running = false
+            return nil
+        }
+        return waiting.removeFirst()
     }
 
     public init(policy: InstallPolicy, files: MacBundleInstallSystem = MacBundleInstallSystem()) {
