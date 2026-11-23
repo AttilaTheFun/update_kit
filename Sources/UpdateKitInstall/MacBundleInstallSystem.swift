@@ -104,6 +104,16 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
         return copy
     }
 
+    /// What the zip's directory says it unpacks to (`zipinfo -t`'s total), nil when it can't be read.
+    public func declaredSize(ofZip zip: String) -> Int? {
+        let result = Self.run("/usr/bin/zipinfo", ["-t", zip], timeLimit: 60)
+        guard result.status == 0 else { return nil }
+        // "<n> files, <bytes> bytes uncompressed, <bytes> bytes compressed:  <ratio>"
+        let words = result.output.split(whereSeparator: { $0 == " " || $0 == "," || $0.isNewline })
+        guard let index = words.firstIndex(of: "uncompressed"), index >= 2, words[index - 1] == "bytes" else { return nil }
+        return Int(words[index - 2])
+    }
+
     public func size(of path: String) -> Int {
         var total = 0
         guard let walk = FileManager.default.enumerator(atPath: path) else { return 0 }
@@ -277,11 +287,14 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
         do { try process.run() } catch { return (-1, "\(error)", false) }
         let run = RunState()
         if let timeLimit {
+            // Its own thread, sleeping, never one of Dispatch's shared workers.
             let pid = process.processIdentifier
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeLimit) {
+            Thread.detachNewThread {
+                Thread.sleep(forTimeInterval: timeLimit)
                 guard run.stop() else { return }
                 kill(pid, SIGTERM)
-                DispatchQueue.global().asyncAfter(deadline: .now() + 5) { if !run.finished { kill(pid, SIGKILL) } }
+                Thread.sleep(forTimeInterval: 5)
+                if !run.finished { kill(pid, SIGKILL) }
             }
         }
         let output = pipe.fileHandleForReading.readDataToEndOfFile()

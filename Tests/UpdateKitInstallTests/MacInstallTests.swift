@@ -156,10 +156,13 @@ import Testing
             signed.signing = signing
             #expect(install(zip, policy: signed).refusal?.code == .badSignature)
         }
-        // A build whose signature was broken after signing.
+        // A build changed after it was signed (its executable), under the policy a test build of the service takes.
         let broken = try makeApp(at: "\(root)/Broken/TestApp.app", version: "3")
-        try Data("changed".utf8).write(to: URL(fileURLWithPath: "\(broken)/Contents/Info.plist"), options: .atomic)
-        #expect(install(try self.zip(broken, as: "broken.zip")).refusal?.code != nil)
+        let executable = try FileHandle(forWritingTo: URL(fileURLWithPath: "\(broken)/Contents/MacOS/TestApp"))
+        try executable.seekToEnd()
+        try executable.write(contentsOf: Data("changed".utf8))
+        try executable.close()
+        #expect(install(try self.zip(broken, as: "broken.zip")).refusal?.code == .badSignature)
     }
 
     @Test func theNoteIsNeverWrittenThroughALink() throws {

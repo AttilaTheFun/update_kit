@@ -75,6 +75,10 @@ public enum BundleInstall {
         guard digest == expected else {
             return .failure(InstallRefusal(.digestDiffers, "The build's file isn't the one its release lists (its SHA-256 differs)."))
         }
+        // Too large refused before anything is unpacked, by what the zip says; then by what it did unpack to.
+        guard let declared = system.declaredSize(ofZip: copy), declared <= policy.maxUnpackedBytes else {
+            return .failure(InstallRefusal(.tooLarge, "The build unpacks to more than this installer takes."))
+        }
         let unpacked = "\(folder)/\(unpackedName)"
         do {
             try system.createFolder(unpacked)
@@ -243,7 +247,9 @@ public enum BundleInstall {
 
     /// Two `CFBundleVersion`s compared by their dot-separated numbers (`1.10` after `1.9`; a missing part is 0).
     static func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
-        let left = lhs.split(separator: ".").map { Int($0) ?? 0 }, right = rhs.split(separator: ".").map { Int($0) ?? 0 }
+        // Each part's leading digits (`3b` is 3); a part with none is 0.
+        func parts(_ version: String) -> [Int] { version.split(separator: ".").map { Int($0.prefix { $0.isASCII && $0.isNumber }) ?? 0 } }
+        let left = parts(lhs), right = parts(rhs)
         for index in 0..<max(left.count, right.count) {
             let a = index < left.count ? left[index] : 0, b = index < right.count ? right[index] : 0
             if a != b { return a < b ? .orderedAscending : .orderedDescending }

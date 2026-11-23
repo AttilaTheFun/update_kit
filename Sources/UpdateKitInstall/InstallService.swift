@@ -85,11 +85,22 @@ public enum UpdateKitInstallService {
 }
 
 /// The service's side: `UpdateKitInstallXPC` carried out with its own policy, one call at a time (an install's swap,
-/// a restore and a sweep never overlap), on its own queue.
+/// a restore and a sweep never overlap), each on a thread of its own: an unpacking may take minutes, which no Dispatch
+/// worker shared with the rest of the process is kept waiting for.
 public final class UpdateKitInstallHandler: NSObject, UpdateKitInstallXPC, @unchecked Sendable {
     public let policy: InstallPolicy
     let files: MacBundleInstallSystem
-    private let queue = DispatchQueue(label: "update-kit-install")
+    private let oneAtATime = NSLock()
+
+    /// `work` on a thread of its own, once no other call's is running.
+    private func serially(_ work: @escaping @Sendable () -> Void) {
+        let lock = oneAtATime
+        Thread.detachNewThread {
+            lock.lock()
+            defer { lock.unlock() }
+            work()
+        }
+    }
 
     public init(policy: InstallPolicy, files: MacBundleInstallSystem = MacBundleInstallSystem()) {
         self.policy = policy
@@ -100,7 +111,7 @@ public final class UpdateKitInstallHandler: NSObject, UpdateKitInstallXPC, @unch
     public static var interface: NSXPCInterface { NSXPCInterface(with: UpdateKitInstallXPC.self) }
 
     public func install(_ request: Data, reply: @escaping @Sendable (Data) -> Void) {
-        queue.async { [self] in
+        serially { [self] in
             let result: Result<InstallResult, InstallRefusal> = decode(BundleInstallRequest.self, request).flatMap { request in
                 // Nothing installed under a watch: it would be undone, or undo the watch's restore.
                 if let lock = policy.watchLockPath, WatchLock.holder(lock, system: MacWatchSystem(files: files)) != nil {
@@ -113,17 +124,17 @@ public final class UpdateKitInstallHandler: NSObject, UpdateKitInstallXPC, @unch
     }
 
     public func restore(_ backup: String, reply: @escaping @Sendable (Data) -> Void) {
-        queue.async { [self] in
+        serially { [self] in
             reply(Self.encode(InstallReply(BundleInstall.restore(backup: backup, policy: policy, system: files).map { true })))
         }
     }
 
     public func discard(_ backup: String, reply: @escaping @Sendable (Bool) -> Void) {
-        queue.async { [self] in reply(BundleInstall.discard(backup: backup, system: files)) }
+        serially { [self] in reply(BundleInstall.discard(backup: backup, system: files)) }
     }
 
     public func watch(_ watch: Data, reply: @escaping @Sendable (Data) -> Void) {
-        queue.async { [self] in
+        serially { [self] in
             let result: Result<Bool, InstallRefusal> = decode(StayUpWatch.self, watch)
                 .flatMap { StayUpWatcher.checked($0, policy: policy, files: files) }
                 .flatMap { StayUpWatchLauncher.start($0, policy: policy, files: files).map { true } }

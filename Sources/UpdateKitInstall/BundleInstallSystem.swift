@@ -29,6 +29,8 @@ public protocol BundleInstallSystem {
     /// The zip unpacked into `folder`, nothing quarantined (`ditto -x -k --noqtn`); `InstallRefusal` `.unpackTimedOut`
     /// when it ran longer than `timeLimit` seconds (and was stopped).
     func unpack(zip: String, into folder: String, timeLimit: TimeInterval) throws
+    /// What the zip's directory says it unpacks to, nil when it can't be read (a zip that says nothing is refused).
+    func declaredSize(ofZip zip: String) -> Int?
     /// The bytes of everything under `path`, links not followed.
     func size(of path: String) -> Int
     /// A folder's entries' names.

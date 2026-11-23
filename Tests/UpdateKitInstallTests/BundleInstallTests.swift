@@ -98,6 +98,15 @@ import Testing
         mac.unpackedSize = policy.maxUnpackedBytes + 1
         #expect(install(mac).refusal?.code == .tooLarge)
         #expect(!mac.swapped)
+        // What the zip says, before it's unpacked: too much, or nothing at all.
+        mac.unpackedSize = 1
+        mac.declaredSize = .some(policy.maxUnpackedBytes + 1)
+        let before = mac.steps.count
+        #expect(install(mac).refusal?.code == .tooLarge)
+        #expect(!mac.steps.dropFirst(before).contains { if case .unpack = $0 { return true } else { return false } })
+        mac.declaredSize = .some(nil)
+        #expect(install(mac).refusal?.code == .tooLarge)
+        mac.declaredSize = .none
         mac.unpackedSize = 1
         #expect(install(mac, sha256: buildSHA.uppercased()).value != nil)
     }
@@ -147,6 +156,8 @@ import Testing
         #expect(install(mac, policy: choosing).value != nil)
         #expect(BundleInstall.compare("1.10", "1.9") == .orderedDescending)
         #expect(BundleInstall.compare("2", "2.0") == .orderedSame)
+        #expect(BundleInstall.compare("3b", "2") == .orderedDescending)
+        #expect(BundleInstall.compare("1.x", "1.0") == .orderedSame)
     }
 
     @Test func replacesOnlyTheSameAppAtItsName() {
