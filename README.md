@@ -53,8 +53,9 @@ Reviews, which publishes the draft and makes its `v<version>` tag:
 
     gh workflow run CI --ref main -f run=release -f version=0.12.0
 
-CI runs the tests on Linux, builds the library for iOS and macOS on
-GitHub's xcode-27 Mac (`apple-verify`), writes the tests' proof in format 2
+CI runs the tests on Linux, and on GitHub's xcode-27 Mac (`apple-verify`:
+the tests again, the installer's real-app ones among them, and the library
+built for iOS), writes the tests' proof in format 2
 (AttilaTheFun/reviews' docs/PROOF_FORMAT.md; tools/ci/proof.sh), and
 proposes the draft "UpdateKit <version>" with the proof attached as
 proof.zip (tools/ci/propose.sh). `-f run=verify` runs the tests and makes
