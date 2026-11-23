@@ -197,9 +197,14 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         var paths: [String] = []
         for pid in pids.prefix(Int(found)) where pid > 0 {
-            if proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 { paths.append(String(cString: buffer)) }
+            if proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 { paths.append(path(of: buffer)) }
         }
         return paths
+    }
+
+    /// A C string's bytes, up to its NUL, as a path.
+    static func path(of buffer: [CChar]) -> String {
+        String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     /// A program's status and its output (standard output and error together). With a time limit, a program still

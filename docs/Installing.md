@@ -68,6 +68,62 @@ new build's main executable (`executableSHA256`):
 - one neither discarded nor restored, that nothing runs from, is swept by
   an install after the policy's `backupLifetime` (a day by default).
 
+## Staying up
+
+Once the new build is in place, the app asks its service to watch it
+(`StayUpWatch`) and quits. The service can't do the watching itself, since
+launchd ends it with the app. So `StayUpWatchLauncher.start` copies the
+service's own bundle into the service's folder (a copied bundle stays
+validly signed, and the build in place can change under it) and starts a
+one-shot launchd job of the user's (`gui/<uid>`, `AbandonProcessGroup`)
+that runs the copy in watch mode. The service's `main` calls
+`StayUpWatchLauncher.runIfAsked()` first, before its listener. The
+watcher (`StayUpWatcher`):
+
+1. takes the lock (`WatchLock`): a file holding `<pid> <started-epoch-seconds>`,
+   which counts only while that pid is alive, so a stale one never blocks.
+   A live holder is sent SIGTERM first, and the file is removed at the end
+   only if the line is still the watcher's own. `start` itself refuses
+   (`watchInProgress`) while a live watcher holds it;
+2. waits for the asking app to exit (`quittingPID`, up to `quitSeconds`),
+   then opens the new build;
+3. finds its process, running the destination's main executable, within
+   `startSeconds`;
+4. for a server, waits for an answer from `healthURL` (any HTTP status
+   counts) within `firstAnswerSeconds`. With `listenerMustBeWatched`, the
+   process listening on its port, where lsof shows it, must be the watched
+   one, so an old process still answering doesn't count;
+5. checks the process is still running `seconds` (120 by default) later.
+
+If all of that passes, the backup is discarded and the note
+(`WatchNote`, JSON at `notePath`) says `stayedUp`. If any step fails, the
+new process is sent SIGTERM, the backup is restored (refused if the build
+in place has changed since) and opened again, and the note says
+`restored` with why, or `restoreFailed` with both whys. The app reads the
+note at its next launch (`WatchNote.read`).
+
+The service checks the watch first (`StayUpWatcher.checked`): it uses its
+own policy, whatever the app sent, and writes the lock and the note only in
+the policy's `zipFolders` or `watchFolders`.
+
+## The service's interface
+
+`UpdateKitInstallXPC` is the XPC interface, shared by every app that embeds
+such a service. Its values are this module's Codable types as JSON, and its
+replies are `InstallReply`s. The service exports
+`UpdateKitInstallHandler(policy:)` (one call at a time, with its own
+policy); the app calls it through `UpdateKitInstallClient(serviceName:)`:
+
+    let installer = UpdateKitInstallClient(serviceName: "<the app's id>.Installer")
+    switch await installer.install(BundleInstallRequest(zipPath: zip.path, bundleID: id, sha256: digest, name: name)) {
+    case .success(let result):
+        _ = await installer.watch(StayUpWatch(install: result, bundleID: id, quittingPID: getpid(),
+                                              lockPath: lock, notePath: note))
+        NSApplication.shared.terminate(nil)
+    case .failure(let refusal):
+        show(refusal)          // refusal.code, refusal.reason
+    }
+
 ## Checking it in CI
 
 A unit test can't show that the new copy opens, since quarantine,

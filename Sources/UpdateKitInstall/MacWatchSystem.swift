@@ -39,7 +39,7 @@ public struct MacWatchSystem: WatchSystem {
         guard found > 0 else { return [] }
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         return pids.prefix(Int(found)).filter { pid in
-            pid > 0 && proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 && String(cString: buffer) == wanted
+            pid > 0 && proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 && MacBundleInstallSystem.path(of: buffer) == wanted
         }
     }
 

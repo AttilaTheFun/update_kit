@@ -26,13 +26,14 @@ public struct StayUpWatch: Sendable, Codable, Equatable {
     public var lockPath: String
     /// Where the outcome goes (`WatchNote`, JSON), for the app's next launch.
     public var notePath: String
-    /// The install's policy: the restore's checks.
-    public var policy: InstallPolicy
+    /// The install's policy, for the restore's checks: the service's own, set by it (`StayUpWatcher.checked`), whatever
+    /// the app sent.
+    public var policy: InstallPolicy?
 
     public init(install: InstallResult, bundleID: String, quittingPID: Int32, quitSeconds: TimeInterval = 60,
                 startSeconds: TimeInterval = 30, healthURL: URL? = nil, firstAnswerSeconds: TimeInterval = 600,
                 listenerMustBeWatched: Bool = false, seconds: TimeInterval = 120, lockPath: String, notePath: String,
-                policy: InstallPolicy) {
+                policy: InstallPolicy? = nil) {
         self.install = install
         self.bundleID = bundleID
         self.quittingPID = quittingPID

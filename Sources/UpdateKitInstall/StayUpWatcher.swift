@@ -121,9 +121,12 @@ public enum StayUpWatcher {
         guard let backup = watch.install.backup else {
             return note(.restoreFailed, "\(failure) There was no earlier build to put back.")
         }
+        guard let policy = watch.policy else {
+            return note(.restoreFailed, "\(failure) The watch had no installer policy to put the earlier build back by.")
+        }
         switch BundleInstall.restore(backup: backup, destination: watch.install.destination,
                                      installedExecutableSHA256: watch.install.executableSHA256, bundleID: watch.bundleID,
-                                     policy: watch.policy, system: system.files) {
+                                     policy: policy, system: system.files) {
         case .success:
             _ = system.open(app: watch.install.destination)
             return note(.restored, failure)
