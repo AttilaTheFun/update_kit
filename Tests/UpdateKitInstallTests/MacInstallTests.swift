@@ -198,6 +198,36 @@ import Testing
         #expect(await read(remove: false) == nil)
     }
 
+    /// The service's calls run one at a time, in the order they came: an install then its restore never the other way.
+    @Test func theServicesCallsRunInTheOrderTheyCame() async {
+        /// What the calls saw, under a lock (Synchronization's Mutex is macOS 15's; the package's floor is 14).
+        final class Seen: @unchecked Sendable {
+            private let lock = NSLock()
+            private var ran: [Int] = [], running = 0, most = 0
+            func start() { lock.withLock { running += 1; most = max(most, running) } }
+            func end(_ index: Int) { lock.withLock { ran.append(index); running -= 1 } }
+            var order: [Int] { lock.withLock { ran } }
+            var mostAtOnce: Int { lock.withLock { most } }
+        }
+        let handler = UpdateKitInstallHandler(policy: policy, files: files)
+        let seen = Seen()
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            for index in 0..<200 {
+                handler.serially {
+                    seen.start()
+                    if index % 20 == 0 { Thread.sleep(forTimeInterval: 0.001) }
+                    seen.end(index)
+                    if index == 199 { done.resume() }
+                }
+            }
+        }
+        #expect(seen.order == Array(0..<200))
+        #expect(seen.mostAtOnce == 1, "one at a time")
+        // Called again once all have run: a new thread takes them.
+        let again = await withCheckedContinuation { continuation in handler.serially { continuation.resume(returning: true) } }
+        #expect(again)
+    }
+
     @Test func anAdHocServiceInstallsNothingButForTests() throws {
         defer { try? FileManager.default.removeItem(atPath: root) }
         let zip = try zip(try makeApp(at: "\(root)/Build/TestApp.app", version: "2"))
