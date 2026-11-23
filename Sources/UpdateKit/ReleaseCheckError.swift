@@ -1,3 +1,5 @@
+import Foundation
+
 /// Why a direct check of an app's releases failed. Retried at the next
 /// check; nothing is shown.
 public enum ReleaseCheckError: Error, Sendable, Equatable {
