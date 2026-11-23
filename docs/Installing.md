@@ -33,19 +33,23 @@ an unknown code decodes as `.unknown`), with nothing after it done:
 3. it is copied from one opening of it (`O_NOFOLLOW`; a plain file, no
    larger than `maxZipBytes`, its opened path still in those folders by
    `F_GETPATH`), its bytes alone, into a fresh folder of the service's
-   own, and the copy's SHA-256 is the one given. Only the copy is used
+   own, and the copy's SHA-256 is the one given; what its directory says
+   it unpacks to (`zipinfo -t`) is no more than `maxUnpackedBytes`. Only the copy is used
    from here on, so the app can't change the file between the check and
    the unpacking;
 4. the copy, unpacked into its own subfolder by `ditto -x -k --noqtn`
    within the policy's `unpackTimeLimit` (five minutes; a stuck ditto is
-   stopped), comes to no more than `maxUnpackedBytes` and holds exactly
+   stopped), and stopped too once it has written more than
+   `maxUnpackedBytes` (looked at each second: a zip whose directory says
+   less than it holds), comes to no more than `maxUnpackedBytes` and holds exactly
    one app, which is a folder itself, never a link to one;
 5. its signature passes the policy's `signing`. It's valid (strict, every
    architecture, nested code), and meets a requirement that always names
    Apple's anchor and the service's own team, so a self-signed
    certificate claiming the team fails. `developerID`, the default, also
    requires the team's Developer ID Application certificate and
-   notarization, and refuses when notarization can't be checked. `team`
+   notarization, and refuses when notarization can't be checked (offline,
+   by the build's stapled ticket: staple every release). `team`
    takes any certificate of the team's. `adHocForTests` (a test build of
    the service with no team) is honoured only by a debug build of this
    library;
@@ -102,8 +106,9 @@ mode. The watcher (`StayUpWatcher`):
    sent SIGTERM, and then a second is waited, only if its executable is
    in the service's own folder (a watcher), so a line anyone else wrote
    never has a process signalled. The file is removed at the end only if
-   the line is still the watcher's own. `start`, and every install,
-   refuse (`watchInProgress`) while a live watcher holds it;
+   the line is still the watcher's own. `start` takes it at once, in the
+   service's name, until the watcher takes it over; `start` and every
+   install refuse (`watchInProgress`) while it's held;
 2. waits for the asking app to exit (`quittingPID`, up to
    `quitSeconds`). An app that doesn't quit has its update undone, not
    opened over. Then it opens the new build;
@@ -122,9 +127,15 @@ the new process is sent SIGTERM (then SIGKILL, five seconds later, if
 it's still there), the backup is restored and opened again, and the note
 says `restored` with why, or `restoreFailed` with both whys. The lock and
 the note are written through their folder opened without following a
-link, and never through a link themselves. They're the policy's, never
-the app's to choose, so put them where the sandboxed app can't replace
-their folders (never in its container).
+link, and never through a link themselves; the note is written whole,
+into a new file renamed over it. They're the policy's, never the app's
+to choose, so put each directly in a folder the sandboxed app can't write
+or replace, nor any folder above it (never in its container or an app
+group's). The app reads the note through its service (`note(remove:)`),
+since it can't read that folder itself. If launchd ends the service as the
+app quits, before the watcher has taken the lock over, the lock is the
+service's own until its pid is gone, which only blocks installs for that
+moment.
 
 The service checks the watch first (`StayUpWatcher.checked`): its app is
 the policy's at its destination, its backup is one the service keeps,

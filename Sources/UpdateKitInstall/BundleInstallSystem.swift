@@ -27,8 +27,11 @@ public protocol BundleInstallSystem {
     /// `.tooLarge`), with no extended attribute kept. The copy's path.
     func copy(zip: String, into folder: String, within folders: [String], maxBytes: Int) throws -> String
     /// The zip unpacked into `folder`, nothing quarantined (`ditto -x -k --noqtn`); `InstallRefusal` `.unpackTimedOut`
-    /// when it ran longer than `timeLimit` seconds (and was stopped).
-    func unpack(zip: String, into folder: String, timeLimit: TimeInterval) throws
+    /// when it ran longer than `timeLimit` seconds, or `.tooLarge` once it had written more than `maxBytes` (each
+    /// stopped as it happened).
+    func unpack(zip: String, into folder: String, timeLimit: TimeInterval, maxBytes: Int) throws
+    /// What the zip's directory says it unpacks to, nil when it can't be read (a zip that says nothing is refused).
+    func declaredSize(ofZip zip: String) -> Int?
     /// The bytes of everything under `path`, links not followed.
     func size(of path: String) -> Int
     /// A folder's entries' names.

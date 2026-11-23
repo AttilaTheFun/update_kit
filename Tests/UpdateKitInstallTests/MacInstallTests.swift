@@ -148,6 +148,56 @@ import Testing
         #expect(install(zip, policy: small).refusal?.code == .tooLarge)
     }
 
+    @Test func aZipThatSaysLessThanItHoldsIsStoppedAsItUnpacks() throws {
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        // An app with 400 MB of zeros, its zip's headers rewritten to say every entry is 1000 bytes.
+        try makeApp(at: "\(root)/Build/TestApp.app", version: "2")
+        try Data(count: 400_000_000).write(to: URL(fileURLWithPath: "\(root)/Build/TestApp.app/Contents/blob"))
+        let zipPath = "\(container)/lying.zip"
+        let script = """
+            import sys, zipfile, os, struct
+            z = zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED)
+            for base, _, names in os.walk(sys.argv[2]):
+                for name in names:
+                    full = os.path.join(base, name)
+                    z.write(full, os.path.relpath(full, os.path.dirname(sys.argv[2])))
+            z.close()
+            data = bytearray(open(sys.argv[1], "rb").read())
+            i = 0
+            while True:
+                i = data.find(b"PK\\x01\\x02", i)
+                if i < 0: break
+                struct.pack_into("<I", data, i + 24, 1000)
+                local = struct.unpack_from("<I", data, i + 42)[0]
+                struct.pack_into("<I", data, local + 22, 1000)
+                i += 4
+            open(sys.argv[1], "wb").write(data)
+            """
+        try run("/usr/bin/python3", ["-I", "-c", script, zipPath, "\(root)/Build/TestApp.app"])
+        #expect((files.declaredSize(ofZip: zipPath) ?? 0) < 1_000_000, "the headers say little")
+        var small = policy
+        small.maxUnpackedBytes = 20_000_000
+        let refusal = install((zipPath, try files.sha256(ofFile: zipPath)), policy: small).refusal
+        #expect(refusal?.code == .tooLarge || refusal?.code == .unpackFailed, "\(String(describing: refusal))")
+        #expect(!FileManager.default.fileExists(atPath: "\(applications)/TestApp.app"))
+        // Nothing of it left behind in the service's folder.
+        #expect(files.size(of: "\(root)/Service") < 50_000_000)
+    }
+
+    @Test func theNoteIsReadThroughTheServiceAndRemovedOnce() async throws {
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let handler = UpdateKitInstallHandler(policy: policy, files: files)
+        let note = WatchNote(outcome: .restored, reason: "quit early", bundleID: "com.example.TestApp", executableSHA256: "ab",
+                             at: Date(timeIntervalSince1970: 1_800_000_000))
+        try MacWatchSystem(files: files).write(note.json, to: "\(root)/watch.json")
+        func read(remove: Bool) async -> Data? {
+            await withCheckedContinuation { continuation in handler.note(remove: remove) { continuation.resume(returning: $0) } }
+        }
+        #expect(await read(remove: false).flatMap(WatchNote.decoded) == note)
+        #expect(await read(remove: true).flatMap(WatchNote.decoded) == note)
+        #expect(await read(remove: false) == nil)
+    }
+
     @Test func anAdHocServiceInstallsNothingButForTests() throws {
         defer { try? FileManager.default.removeItem(atPath: root) }
         let zip = try zip(try makeApp(at: "\(root)/Build/TestApp.app", version: "2"))
@@ -156,10 +206,13 @@ import Testing
             signed.signing = signing
             #expect(install(zip, policy: signed).refusal?.code == .badSignature)
         }
-        // A build whose signature was broken after signing.
+        // A build changed after it was signed (its executable), under the policy a test build of the service takes.
         let broken = try makeApp(at: "\(root)/Broken/TestApp.app", version: "3")
-        try Data("changed".utf8).write(to: URL(fileURLWithPath: "\(broken)/Contents/Info.plist"), options: .atomic)
-        #expect(install(try self.zip(broken, as: "broken.zip")).refusal?.code != nil)
+        let executable = try FileHandle(forWritingTo: URL(fileURLWithPath: "\(broken)/Contents/MacOS/TestApp"))
+        try executable.seekToEnd()
+        try executable.write(contentsOf: Data("changed".utf8))
+        try executable.close()
+        #expect(install(try self.zip(broken, as: "broken.zip")).refusal?.code == .badSignature)
     }
 
     @Test func theNoteIsNeverWrittenThroughALink() throws {
@@ -168,9 +221,12 @@ import Testing
         try FileManager.default.createDirectory(atPath: "\(root)/Elsewhere", withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: "\(root)/Notes", withDestinationPath: "\(root)/Elsewhere")
         #expect(throws: (any Error).self) { try system.write("x", to: "\(root)/Notes/note.json") }
+        // A link put where the note goes: replaced by the note itself (renamed over it), what it points to untouched.
         try FileManager.default.createSymbolicLink(atPath: "\(root)/note.json", withDestinationPath: "\(root)/Elsewhere/target")
-        #expect(throws: (any Error).self) { try system.write("x", to: "\(root)/note.json") }
+        try system.write("x", to: "\(root)/note.json")
         #expect(!FileManager.default.fileExists(atPath: "\(root)/Elsewhere/target"))
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: "\(root)/note.json")) == nil)
+        #expect(system.read("\(root)/note.json") == "x")
         try system.write("x", to: "\(root)/plain.json")
         #expect(system.read("\(root)/plain.json") == "x")
     }

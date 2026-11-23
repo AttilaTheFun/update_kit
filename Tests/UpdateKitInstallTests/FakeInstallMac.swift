@@ -36,6 +36,8 @@ final class FakeInstallMac: BundleInstallSystem {
     var contents: [String: [(name: String, app: App)]] = [:]
     var zipSizes: [String: Int] = [:]
     var unpackedSize = 1_000
+    /// What the zip says it unpacks to (nil: it says nothing); the size itself by default.
+    var declaredSize: Int?? = .none
     var badSignatures: Set<String> = []
     var running: [String] = []
     var steps: [Step] = []
@@ -97,7 +99,7 @@ final class FakeInstallMac: BundleInstallSystem {
         return copy
     }
 
-    func unpack(zip: String, into folder: String, timeLimit: TimeInterval) throws {
+    func unpack(zip: String, into folder: String, timeLimit: TimeInterval, maxBytes: Int) throws {
         steps.append(.unpack(zip))
         if let unpackFails { throw unpackFails }
         for entry in contents[zip] ?? [] { apps["\(folder)/\(entry.name)"] = entry.app }
@@ -105,6 +107,10 @@ final class FakeInstallMac: BundleInstallSystem {
     }
 
     func size(of path: String) -> Int { unpackedSize }
+    func declaredSize(ofZip zip: String) -> Int? {
+        if case .some(let said) = declaredSize { return said }
+        return unpackedSize
+    }
 
     func entries(of folder: String) -> [String] {
         let children = Array(apps.keys) + Array(files.keys) + Array(folders.keys)

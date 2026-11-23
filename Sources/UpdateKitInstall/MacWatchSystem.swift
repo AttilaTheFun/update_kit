@@ -27,15 +27,35 @@ public struct MacWatchSystem: WatchSystem {
 
     public func read(_ path: String) -> String? { files.read(path).map { String(decoding: $0, as: UTF8.self) } }
 
-    /// Written through its folder opened without following a link, into a file never followed either: a link the app
-    /// put at either sends nothing anywhere.
+    /// Written whole, through its folder opened without following a link: into a new file of its own beside it, never
+    /// followed either, then renamed over it in that folder in one step. A link the app put at either sends nothing
+    /// anywhere, and a reader never sees half of it.
     public func write(_ text: String, to path: String) throws {
+        func failure() -> MacBundleInstallSystem.Failure { MacBundleInstallSystem.Failure(description: MacBundleInstallSystem.errorText()) }
         let folder = Darwin.open((path as NSString).deletingLastPathComponent, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard folder >= 0 else { throw MacBundleInstallSystem.Failure(description: MacBundleInstallSystem.errorText()) }
+        guard folder >= 0 else { throw failure() }
         defer { close(folder) }
-        let file = openat(folder, (path as NSString).lastPathComponent, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard file >= 0 else { throw MacBundleInstallSystem.Failure(description: MacBundleInstallSystem.errorText()) }
-        try FileHandle(fileDescriptor: file, closeOnDealloc: true).write(contentsOf: Data(text.utf8))
+        let name = (path as NSString).lastPathComponent, temporary = ".\(name).\(UUID().uuidString)"
+        // What a write cut off left (the watcher killed mid-write) goes first.
+        for entry in files.entries(of: (path as NSString).deletingLastPathComponent) where entry.hasPrefix(".\(name).") {
+            unlinkat(folder, entry, 0)
+        }
+        let file = openat(folder, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard file >= 0 else { throw failure() }
+        do {
+            let handle = FileHandle(fileDescriptor: file, closeOnDealloc: true)
+            try handle.write(contentsOf: Data(text.utf8))
+            // On disk before it takes the note's name.
+            try handle.synchronize()
+        } catch {
+            unlinkat(folder, temporary, 0)
+            throw error
+        }
+        guard renameat(folder, temporary, folder, name) == 0 else {
+            let error = failure()
+            unlinkat(folder, temporary, 0)
+            throw error
+        }
     }
 
     public func remove(_ path: String) { try? FileManager.default.removeItem(atPath: path) }
@@ -125,8 +145,14 @@ public enum StayUpWatchLauncher {
         guard let lockPath = policy.watchLockPath else {
             return .failure(InstallRefusal(.noWatches, "This installer has no place for a watch's lock, so it watches nothing."))
         }
-        if let holder = WatchLock.holder(lockPath, system: MacWatchSystem(files: files)) {
+        let system = MacWatchSystem(files: files)
+        if let holder = WatchLock.holder(lockPath, system: system) {
             return .failure(InstallRefusal(.watchInProgress, "Another update is being watched (since \(holder.started)): try again later."))
+        }
+        // Held at once, by the service, until the watcher takes it over (it never signals the service, which isn't one
+        // of its copies): no install goes ahead in between.
+        do { try WatchLock.take(lockPath, ownFolder: files.ownFolder, system: system) } catch {
+            return .failure(InstallRefusal(.watchFailed, "The watch's lock couldn't be taken: \(error)"))
         }
         var made: String?
         do {
@@ -156,11 +182,13 @@ public enum StayUpWatchLauncher {
                 // A job half-loaded goes too.
                 _ = MacBundleInstallSystem.run("/bin/launchctl", ["bootout", "gui/\(getuid())/\(label)"], timeLimit: 10)
                 files.remove(folder)
+                WatchLock.release(lockPath, system: system)
                 return .failure(InstallRefusal(.watchFailed, "The watcher couldn't be started: launchctl exited \(result.status)."))
             }
             return .success(())
         } catch {
             if let made { files.remove(made) }
+            WatchLock.release(lockPath, system: system)
             return .failure(InstallRefusal(.watchFailed, "The watcher couldn't be started: \(error)"))
         }
     }
