@@ -17,6 +17,15 @@ bundle ids, come from the app's Info.plist (`UpdateKitAppGroup`,
 without them it does nothing. An app tells of nothing and shows no update
 UI: only Applications tells of updates (0.17.0; docs/Updates.md).
 
+`UpdateKitInstall` (0.18.0): for a sandboxed Mac app's unsandboxed
+installer service, an XPC service embedded in it. The app downloads a build
+and the service checks it, puts it in place without quarantine, keeps the
+copy it replaced, and starts a watcher that puts that copy back if the new
+build doesn't stay up (docs/Installing.md). It depends on nothing; its rules
+are tested on Linux.
+
+    .product(name: "UpdateKitInstall", package: "update_kit")
+
 It depends on [swift_sql](https://github.com/AttilaTheFun/swift_sql)'s
 `SwiftSQL`. Tested on Linux; built for iOS and macOS on a Mac when a
 release is verified. CI runs on GitHub's hosted runners alone: the
