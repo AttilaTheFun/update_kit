@@ -39,9 +39,15 @@ public struct UpdateOffer: Sendable, Equatable {
     public var state: State
     /// Why it was declined, or why it failed.
     public var note: String?
-    /// The verified, unpacked app (`handedOver`), in the app group's
-    /// container, for an app that installs itself.
+    /// What's handed over (`handedOver`), in the app group's container, for
+    /// an app that installs itself: the verified, unpacked app; or, for an
+    /// app that takes its build as its zip (`UpdateKitInfo.installsFromZipKey`),
+    /// the build's zip, checked, which its installer service checks again.
     public var bundle: URL?
+    /// A zip handed over's SHA-256, as its release lists it.
+    public var bundleSHA256: String?
+    /// A zip handed over's app's name (`<name>.app`).
+    public var bundleName: String?
     /// The Applications that made the offer (its bundle id): the one that
     /// carries it out.
     public var offeredBy: String
@@ -49,13 +55,15 @@ public struct UpdateOffer: Sendable, Equatable {
     public var updatedAt: Date
 
     public init(bundleID: String, version: String, build: String?, state: State = .offered, note: String? = nil, bundle: URL? = nil,
-                offeredBy: String, offeredAt: Date, updatedAt: Date? = nil) {
+                bundleSHA256: String? = nil, bundleName: String? = nil, offeredBy: String, offeredAt: Date, updatedAt: Date? = nil) {
         self.bundleID = bundleID
         self.version = version
         self.build = build
         self.state = state
         self.note = note
         self.bundle = bundle
+        self.bundleSHA256 = bundleSHA256
+        self.bundleName = bundleName
         self.offeredBy = offeredBy
         self.offeredAt = offeredAt
         self.updatedAt = updatedAt ?? offeredAt

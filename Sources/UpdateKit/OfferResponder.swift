@@ -25,7 +25,7 @@ public final class OfferResponder {
     private var hooked: Set<String> = []
 
     public init(store: AppGroupStore, app: InstalledApp, installer: UpdateInstaller, system: any UpdateSystem,
-                handler: AutoUpdateHandler?, installHook: AutoUpdateInstaller?, installsFromZip: Bool = false) {
+                handler: AutoUpdateHandler?, installHook: AutoUpdateInstaller?, installsFromZip: Bool) {
         self.store = store
         self.app = app
         self.installer = installer

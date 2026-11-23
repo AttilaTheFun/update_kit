@@ -59,9 +59,13 @@ enum StoreSchema {
         // 4: which apps that install themselves take their build as its zip
         // (UpdateKit 0.18, their Info.plist's UpdateKitInstallsFromZip),
         // which their own installer service unpacks outside the sandbox
-        // (docs/Installing.md), written at launch with answers_offers.
+        // (docs/Installing.md), written at launch with answers_offers; and
+        // a zip handed over's SHA-256 and the app's name, which that
+        // service is asked to install it by.
         """
         ALTER TABLE apps ADD COLUMN installs_from_zip INTEGER;
+        ALTER TABLE offers ADD COLUMN bundle_sha256 TEXT;
+        ALTER TABLE offers ADD COLUMN bundle_name TEXT;
         """,
     ]
 
