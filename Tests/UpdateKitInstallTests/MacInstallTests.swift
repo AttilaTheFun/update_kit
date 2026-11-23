@@ -171,9 +171,12 @@ import Testing
         try FileManager.default.createDirectory(atPath: "\(root)/Elsewhere", withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: "\(root)/Notes", withDestinationPath: "\(root)/Elsewhere")
         #expect(throws: (any Error).self) { try system.write("x", to: "\(root)/Notes/note.json") }
+        // A link put where the note goes: replaced by the note itself (renamed over it), what it points to untouched.
         try FileManager.default.createSymbolicLink(atPath: "\(root)/note.json", withDestinationPath: "\(root)/Elsewhere/target")
-        #expect(throws: (any Error).self) { try system.write("x", to: "\(root)/note.json") }
+        try system.write("x", to: "\(root)/note.json")
         #expect(!FileManager.default.fileExists(atPath: "\(root)/Elsewhere/target"))
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: "\(root)/note.json")) == nil)
+        #expect(system.read("\(root)/note.json") == "x")
         try system.write("x", to: "\(root)/plain.json")
         #expect(system.read("\(root)/plain.json") == "x")
     }
