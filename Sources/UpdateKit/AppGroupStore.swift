@@ -186,14 +186,25 @@ public actor AppGroupStore {
 
     /// Says that this app answers offers (UpdateKit 0.13 and later), at its
     /// launch: Applications then asks it, while it runs, rather than waiting
-    /// for it to quit.
-    public func recordAnswersOffers(bundleID: String) throws {
+    /// for it to quit. And whether, installing itself, it takes its build as
+    /// its zip (UpdateKit 0.18: `UpdateKitInfo.installsFromZipKey`).
+    public func recordAnswersOffers(bundleID: String, installsFromZip: Bool) throws {
         let time = now().timeIntervalSince1970
         try withConnection { connection in
             try connection.run("""
-                INSERT INTO apps (bundle_id, answers_offers, updated_at) VALUES (?1, 1, ?2)
-                ON CONFLICT (bundle_id) DO UPDATE SET answers_offers = 1 WHERE answers_offers IS NOT 1
-                """, bundleID, time)
+                INSERT INTO apps (bundle_id, answers_offers, installs_from_zip, updated_at) VALUES (?1, 1, ?2, ?3)
+                ON CONFLICT (bundle_id) DO UPDATE SET answers_offers = 1, installs_from_zip = ?2
+                WHERE answers_offers IS NOT 1 OR installs_from_zip IS NOT ?2
+                """, bundleID, installsFromZip ? 1 : 0, time)
+        }
+    }
+
+    /// Whether an app that installs itself has said it takes its build as
+    /// its zip: Applications then hands it the checked zip, for its own
+    /// installer service, rather than installing the build for it.
+    public func installsFromZip(bundleID: String) throws -> Bool {
+        try withConnection { connection in
+            try connection.query("SELECT installs_from_zip FROM apps WHERE bundle_id = ?1", bundleID) { $0.int(0) }.first == 1
         }
     }
 
@@ -245,18 +256,21 @@ public actor AppGroupStore {
 
     /// Moves an offer on, if it is still of this build and in one of the
     /// states given (another process may have moved it first): whether it
-    /// did. `note` and `bundle` are written as given (nil clears them).
+    /// did. `note`, `bundle` and the zip's SHA-256 and name are written as
+    /// given (nil clears them).
     @discardableResult
     public func moveOffer(bundleID: String, version: String, build: String?, from states: Set<UpdateOffer.State>,
-                          to state: UpdateOffer.State, note: String? = nil, bundle: URL? = nil) throws -> Bool {
+                          to state: UpdateOffer.State, note: String? = nil, bundle: URL? = nil, bundleSHA256: String? = nil,
+                          bundleName: String? = nil) throws -> Bool {
         let time = now().timeIntervalSince1970
         return try withConnection { connection in
             try connection.transaction(.immediate) { connection in
                 guard let existing = try Self.offer(bundleID, connection), existing.version == version, existing.build == build,
                       states.contains(existing.state) else { return false }
                 try connection.run("""
-                    UPDATE offers SET state = ?2, note = ?3, bundle_path = ?4, updated_at = ?5 WHERE bundle_id = ?1
-                    """, bundleID, state.rawValue, note, bundle?.path, time)
+                    UPDATE offers SET state = ?2, note = ?3, bundle_path = ?4, updated_at = ?5, bundle_sha256 = ?6, bundle_name = ?7
+                    WHERE bundle_id = ?1
+                    """, bundleID, state.rawValue, note, bundle?.path, time, bundleSHA256, bundleName)
                 return true
             }
         }
@@ -295,7 +309,8 @@ public actor AppGroupStore {
                   installedVariant: row.text(7), updatedAt: Date(timeIntervalSince1970: row.double(6)))
     }
 
-    private static let offerColumns = "bundle_id, version, build, state, note, bundle_path, offered_by, offered_at, updated_at"
+    private static let offerColumns =
+        "bundle_id, version, build, state, note, bundle_path, offered_by, offered_at, updated_at, bundle_sha256, bundle_name"
 
     private static func offer(_ bundleID: String, _ connection: Connection) throws -> UpdateOffer? {
         try connection.query("SELECT \(offerColumns) FROM offers WHERE bundle_id = ?1", bundleID, row: offer).first
@@ -304,7 +319,8 @@ public actor AppGroupStore {
     private static func offer(_ row: Row) -> UpdateOffer {
         UpdateOffer(bundleID: row.text(0) ?? "", version: row.text(1) ?? "", build: row.text(2),
                     state: UpdateOffer.State(rawValue: row.text(3) ?? "") ?? .offered, note: row.text(4),
-                    bundle: row.text(5).map { URL(fileURLWithPath: $0) }, offeredBy: row.text(6) ?? "",
+                    bundle: row.text(5).map { URL(fileURLWithPath: $0) }, bundleSHA256: row.text(9), bundleName: row.text(10),
+                    offeredBy: row.text(6) ?? "",
                     offeredAt: Date(timeIntervalSince1970: row.double(7)), updatedAt: Date(timeIntervalSince1970: row.double(8)))
     }
 

@@ -1,4 +1,4 @@
-import UpdateKit
+@testable import UpdateKit
 import Foundation
 import SwiftSQL
 import XCTest
@@ -24,15 +24,96 @@ final class AutoUpdateTests: XCTestCase {
         let app = InstalledApp(bundleID: visor, version: version, build: "1")
         let installer = UpdateInstaller(store: store, system: system, platform: .macOS, handler: nil, requester: visor,
                                         now: { Date(timeIntervalSince1970: 50) })
-        return OfferResponder(store: store, app: app, installer: installer, system: system, handler: handler, installHook: installHook)
+        return OfferResponder(store: store, app: app, installer: installer, system: system, handler: handler, installHook: installHook,
+                              installsFromZip: false)
     }
 
     // MARK: The database
 
-    func testTheDatabaseMovesToItsThirdMigration() async throws {
+    func testTheDatabaseMovesToItsFourthMigration() async throws {
         _ = try await store().records()
         let database = try Database(path: temporary.file.path)
-        XCTAssertEqual(try database.query("PRAGMA user_version") { $0.int(0) }, [3])
+        XCTAssertEqual(try database.query("PRAGMA user_version") { $0.int(0) }, [4])
+    }
+
+    func testAnAppSaysItTakesItsBuildAsItsZip() async throws {
+        let store = store()
+        try await store.recordAnswersOffers(bundleID: visor, installsFromZip: false)
+        var fromZip = try await store.installsFromZip(bundleID: visor)
+        XCTAssertFalse(fromZip, "an app that doesn't say so is handed nothing but what it always was")
+        try await store.recordAnswersOffers(bundleID: visor, installsFromZip: true)
+        fromZip = try await store.installsFromZip(bundleID: visor)
+        XCTAssertTrue(fromZip)
+        // A build without the key, launched again, says so too.
+        try await store.recordAnswersOffers(bundleID: visor, installsFromZip: false)
+        fromZip = try await store.installsFromZip(bundleID: visor)
+        XCTAssertFalse(fromZip)
+        // Its launch says it, as it says it answers offers.
+        let system = FakeSystem()
+        let app = InstalledApp(bundleID: visor, version: "0.67.0", build: "1")
+        let installer = UpdateInstaller(store: store, system: system, platform: .macOS, handler: nil, requester: visor)
+        try await OfferResponder(store: store, app: app, installer: installer, system: system, handler: nil, installHook: nil,
+                                 installsFromZip: true).launched()
+        fromZip = try await store.installsFromZip(bundleID: visor)
+        XCTAssertTrue(fromZip)
+    }
+
+    func testADatabaseAtTheThirdMigrationKeepsItsOffersThroughTheFourth() async throws {
+        // A database the third migration left, with an app and an offer in it.
+        try FileManager.default.createDirectory(at: temporary.file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let database = try Database(path: temporary.file.path)
+        try database.withConnection { connection in
+            for migration in StoreSchema.migrations.prefix(3) { try connection.execute(migration) }
+            try connection.execute("PRAGMA user_version = 3")
+            try connection.run("INSERT INTO apps (bundle_id, answers_offers, updated_at) VALUES (?1, 1, 10)", visor)
+            try connection.run("""
+                INSERT INTO offers (bundle_id, version, build, state, bundle_path, offered_by, offered_at, updated_at)
+                VALUES (?1, '0.66.2', '1', 'handedOver', '/tmp/Visor.app', 'com.example.Distributor', 20, 20)
+                """, visor)
+        }
+        database.close()
+        let store = store()
+        let offer = try await store.offer(bundleID: visor)
+        XCTAssertEqual(offer?.state, .handedOver)
+        XCTAssertEqual(offer?.bundle?.path, "/tmp/Visor.app")
+        XCTAssertNil(offer?.bundleSHA256)
+        let answers = try await store.answersOffers(bundleID: visor)
+        XCTAssertTrue(answers)
+        let fromZip = try await store.installsFromZip(bundleID: visor)
+        XCTAssertFalse(fromZip)
+        XCTAssertEqual(try Database(path: temporary.file.path).query("PRAGMA user_version") { $0.int(0) }, [4])
+    }
+
+    func testAZipHandedOverCarriesItsSHA256AndName() async throws {
+        let store = store()
+        try await store.recordInstalled(bundleID: visor, version: "0.67.0", build: "1")
+        _ = try await store.makeOffer(bundleID: visor, version: "0.67.1", build: "1", offeredBy: "com.example.Distributor")
+        let zip = URL(fileURLWithPath: "/tmp/group/Offers/visor-0.67.1/app.zip")
+        let sha = String(repeating: "ab", count: 32)
+        try await store.moveOffer(bundleID: visor, version: "0.67.1", build: "1", from: [.offered], to: .handedOver, bundle: zip,
+                                  bundleSHA256: sha, bundleName: "Visor")
+        let offer = try await store.offer(bundleID: visor)
+        XCTAssertEqual(offer?.bundle, zip)
+        XCTAssertEqual(offer?.bundleSHA256, sha)
+        XCTAssertEqual(offer?.bundleName, "Visor")
+        // The app installing it keeps them, as it keeps the bundle.
+        try await responder(store, running: "0.67.0", system: FakeSystem()).installing()
+        let installing = try await store.offer(bundleID: visor)
+        XCTAssertEqual(installing?.state, .installing)
+        XCTAssertEqual(installing?.bundleSHA256, sha)
+        XCTAssertEqual(installing?.bundleName, "Visor")
+        try await store.moveOffer(bundleID: visor, version: "0.67.1", build: "1", from: [.installing], to: .handedOver, bundle: zip)
+        // Moved on, the zip's figures go with it.
+        try await store.moveOffer(bundleID: visor, version: "0.67.1", build: "1", from: [.handedOver], to: .failed, note: "refused")
+        let failed = try await store.offer(bundleID: visor)
+        XCTAssertNil(failed?.bundleSHA256)
+    }
+
+    func testTheInfoPlistKeySaysItTakesItsZip() {
+        XCTAssertTrue(UpdateKitInfo.installsFromZip(in: [UpdateKitInfo.installsFromZipKey: true]))
+        XCTAssertFalse(UpdateKitInfo.installsFromZip(in: [UpdateKitInfo.installsFromZipKey: false]))
+        XCTAssertFalse(UpdateKitInfo.installsFromZip(in: [:]))
+        XCTAssertFalse(UpdateKitInfo.installsFromZip(in: nil))
     }
 
     func testUpdateAutomaticallyIsOffUntilTurnedOn() async throws {
@@ -51,7 +132,7 @@ final class AutoUpdateTests: XCTestCase {
         var answers = try await store.answersOffers(bundleID: visor)
         XCTAssertFalse(answers, "an app from before 0.13 never says so")
         try await store.recordInstalled(bundleID: visor, version: "0.39.2", build: "1")
-        try await store.recordAnswersOffers(bundleID: visor)
+        try await store.recordAnswersOffers(bundleID: visor, installsFromZip: false)
         answers = try await store.answersOffers(bundleID: visor)
         XCTAssertTrue(answers)
         let record = try await store.record(bundleID: visor)

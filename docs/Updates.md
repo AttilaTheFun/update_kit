@@ -160,10 +160,28 @@ offer, on the main actor; without one, go ahead:
   app's next launch:
 
       AppUpdates.register(install: { offer in    // before start
-          // offer.bundle: the verified .app; install when it suits:
+          // offer.bundle: the verified .app (or, with UpdateKitInstallsFromZip,
+          // its checked zip, for the app's installer service); install when it suits:
           await AppUpdates.installing()           // just before relaunching
           relaunch(from: offer.bundle!)           // Visor: POST /api/restart
       })
+
+  **An app that is sandboxed** can't install an unpacked bundle: one a
+  sandboxed process unpacked won't open, and it can't replace itself in
+  /Applications. Since 0.18 such an app says so in its Info.plist,
+  `UpdateKitInstallsFromZip`, a Boolean `<true/>` (recorded at launch,
+  migration 4, a hint: Applications reads the key from the installed app's
+  own Info.plist at offer time, so a downgrade or another group member
+  can't change it), and Applications hands it the build's checked **zip**
+  instead, in the group's container, as the offer's `bundle`, with its
+  SHA-256 and the app's name (`bundleSHA256`, `bundleName`), which its
+  service is asked to install it by. The app gives it to its own
+  unsandboxed installer service (UpdateKitInstall, docs/Installing.md),
+  which checks it, puts it in place and watches it stay up. An app that
+  answers `.installMyself` without the key (Visor before 0.67, whose
+  server is a login item of its bundle) is handed the verified, unpacked
+  app as before, never quit: from Applications 0.20.3 it is unpacked by
+  Applications' own installer outside the sandbox, so it opens.
 
   The process that installs isn't the one that can say it worked, so the
   next launch does: the build offered running, **installed**; the older one
