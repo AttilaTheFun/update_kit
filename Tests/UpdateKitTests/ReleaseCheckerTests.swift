@@ -14,7 +14,7 @@ struct ReleaseCheckerTests {
     }
 
     private func checker(_ github: FakeGitHub, token: String = "token-1") -> ReleaseChecker {
-        ReleaseChecker(repository: "owner/app", token: { token }, send: { try await github.answer($0) })
+        ReleaseChecker(repository: "owner/app", token: { token }, send: { await github.answer($0) })
     }
 
     private func line(_ version: String, build: String = "1", bundleID: String? = nil, platform: String = "ios",

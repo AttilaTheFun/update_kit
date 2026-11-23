@@ -115,7 +115,7 @@ final class UpdateSessionTests {
             {"file": "Visor.zip", "bundleID": "\(visor)", "platform": "macos", "version": "0.40.2", "buildNumber": "1", "variant": "Production"}
             """
         let github = FakeGitHub(releases: [.init(asset: 4)], builds: [4: [line]])
-        let checker = ReleaseChecker(repository: "owner/app", token: { "token" }, send: { try await github.answer($0) })
+        let checker = ReleaseChecker(repository: "owner/app", token: { "token" }, send: { await github.answer($0) })
         #expect(try await session.checkReleases(checker))
         guard case .available(let update) = try await session.check() else { Issue.record("no update"); return }
         #expect(update.version == "0.40.2")
@@ -133,7 +133,7 @@ final class UpdateSessionTests {
             {"file": "Visor.ipa", "bundleID": "\(visor)", "platform": "ios", "version": "0.40.2", "buildNumber": "1", "variant": "Production"}
             """
         let github = FakeGitHub(releases: [.init(asset: 4)], builds: [4: [line]])
-        let checker = ReleaseChecker(repository: "owner/app", token: { "token" }, send: { try await github.answer($0) })
+        let checker = ReleaseChecker(repository: "owner/app", token: { "token" }, send: { await github.answer($0) })
         #expect(try await session.checkReleases(checker) == false)
         #expect(try await session.store.record(bundleID: visor)?.latestVersion == "0.41.0")
     }
