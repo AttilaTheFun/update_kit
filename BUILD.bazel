@@ -20,14 +20,21 @@ swift_library(
     deps = ["@swiftpkg_swift_sql//:SwiftSQL"],
 )
 
+swift_library(
+    name = "UpdateKitInstall",
+    srcs = glob(["Sources/UpdateKitInstall/*.swift"]),
+    copts = ["-swift-version", "6"],
+    module_name = "UpdateKitInstall",
+)
+
 ios_build_test(
     name = "ios_build",
     minimum_os_version = "17.0",
-    targets = [":UpdateKit"],
+    targets = [":UpdateKit", ":UpdateKitInstall"],
 )
 
 macos_build_test(
     name = "macos_build",
     minimum_os_version = "14.0",
-    targets = [":UpdateKit"],
+    targets = [":UpdateKit", ":UpdateKitInstall"],
 )
