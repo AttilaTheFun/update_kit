@@ -81,7 +81,8 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
 
     public func copy(zip: String, into folder: String, within folders: [String], maxBytes: Int) throws -> String {
         // One opening of it, never through a link; then what it is, how big, and where the file opened really is.
-        let source = open(zip, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        // Non-blocking, so a FIFO put in its place is refused rather than waited on.
+        let source = open(zip, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard source >= 0 else { throw Failure(description: Self.errorText()) }
         defer { close(source) }
         var status = stat()
