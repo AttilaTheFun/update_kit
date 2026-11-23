@@ -24,4 +24,25 @@ final class UpdateKitInfoTests: XCTestCase {
                        ["com.example.A", "com.example.B"])
         XCTAssertEqual(UpdateKitInfo.applicationsBundleIDs(in: nil), [])
     }
+
+    func testTheReleasesRepositoryIsTheInfoPlists() {
+        let key = UpdateKitInfo.releasesRepositoryKey
+        XCTAssertEqual(key, "UpdateKitReleasesRepository")
+        XCTAssertEqual(UpdateKitInfo.releasesRepository(in: [key: "owner/app"]), "owner/app")
+        XCTAssertEqual(UpdateKitInfo.releasesRepository(in: [key: " owner/app.swift_kit-2\n"]), "owner/app.swift_kit-2")
+    }
+
+    func testNoReleasesRepositoryIsNil() {
+        let key = UpdateKitInfo.releasesRepositoryKey
+        XCTAssertNil(UpdateKitInfo.releasesRepository(in: nil))
+        XCTAssertNil(UpdateKitInfo.releasesRepository(in: [:]))
+        XCTAssertNil(UpdateKitInfo.releasesRepository(in: [key: ""]))
+        XCTAssertNil(UpdateKitInfo.releasesRepository(in: [key: 42]))
+        XCTAssertNil(UpdateKitInfo.releasesRepository(in: [key: "$(UPDATE_KIT_RELEASES_REPOSITORY)"]))
+        // Not exactly an owner and a name.
+        for wrong in ["owner", "owner/", "/app", "owner/app/extra", "owner app/app", "owner/../app", "../app", "owner/app?x=1",
+                      "https://github.com/owner/app"] {
+            XCTAssertNil(UpdateKitInfo.releasesRepository(in: [key: wrong]), wrong)
+        }
+    }
 }

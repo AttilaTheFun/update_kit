@@ -7,6 +7,14 @@ public enum UpdatePlatform: Sendable, Equatable {
     /// Applications is asked, and the app quits.
     case macOS
 
+    /// The platform's name in a release's `builds.json`.
+    public var releasePlatform: String {
+        switch self {
+        case .iOS: "ios"
+        case .macOS: "macos"
+        }
+    }
+
     /// This build's.
     public static var current: UpdatePlatform {
         #if os(macOS)

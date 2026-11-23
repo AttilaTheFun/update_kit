@@ -114,6 +114,33 @@ public actor AppGroupStore {
         }
     }
 
+    /// A newest build an app learned of itself, from its own releases
+    /// (`ReleaseChecker`): written only where the row knows of none, or of
+    /// an older one, in one transaction that takes the write lock first, so
+    /// it never lowers what Applications wrote. Its install URL is written
+    /// with it (none, from a direct check), so an older build's install link
+    /// is never left beside a newer version. Whether it was written.
+    /// (`setLatest`, Applications', writes what it is given.)
+    @discardableResult
+    public func offerLatest(_ build: LatestBuild) throws -> Bool {
+        let time = now().timeIntervalSince1970
+        let offered = AppVersion(build.version, build: build.build)
+        return try withConnection { connection in
+            try connection.transaction(.immediate) { connection in
+                let known = try connection.query("SELECT latest_version, latest_build FROM apps WHERE bundle_id = ?1", build.bundleID) { row in
+                    row.text(0).map { AppVersion($0, build: row.text(1)) }
+                }.first.flatMap { $0 }
+                if let known, !(known < offered) { return false }
+                try connection.run("""
+                    INSERT INTO apps (bundle_id, latest_version, latest_build, install_url, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
+                    ON CONFLICT (bundle_id) DO UPDATE SET latest_version = excluded.latest_version,
+                        latest_build = excluded.latest_build, install_url = excluded.install_url, updated_at = excluded.updated_at
+                    """, build.bundleID, build.version, build.build, build.installURL?.absoluteString, time)
+                return true
+            }
+        }
+    }
+
     /// An app's row, or nil when neither it nor Applications has written one.
     public func record(bundleID: String) throws -> AppRecord? {
         try withConnection { connection in

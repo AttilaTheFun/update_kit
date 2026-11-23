@@ -17,6 +17,13 @@ bundle ids, come from the app's Info.plist (`UpdateKitAppGroup`,
 without them it does nothing. An app tells of nothing and shows no update
 UI: only Applications tells of updates (0.17.0; docs/Updates.md).
 
+An app that holds a GitHub sign-in can also check its own releases (0.19):
+given a token (`AppUpdates.register(token:)`) and its releases repository
+in its Info.plist (`UpdateKitReleasesRepository`, `owner/name`), it reads
+their `builds.json` at launch and hourly and writes a newer build to the
+shared database, as Applications would. It learns only; it shows and
+installs nothing (docs/DirectReleases.md).
+
 `UpdateKitInstall` (0.18.0): for a sandboxed Mac app's unsandboxed
 installer service, an XPC service embedded in it. The app downloads a build
 and the service checks it, puts it in place without quarantine, keeps the

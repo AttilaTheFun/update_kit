@@ -22,6 +22,10 @@ public enum UpdateKitInfo {
     /// its build as the checked zip, never an unpacked bundle (one a
     /// sandboxed process unpacked won't open).
     public static let installsFromZipKey = "UpdateKitInstallsFromZip"
+    /// The Info.plist key, a string `owner/name`, of the GitHub repository
+    /// whose releases carry the app's builds (their `builds.json`): the app
+    /// checks them itself, given a token (docs/DirectReleases.md).
+    public static let releasesRepositoryKey = "UpdateKitReleasesRepository"
 
     /// The app group an Info.plist names; nil when it names none, or only a
     /// build variable no build filled in (`$(UPDATE_KIT_APP_GROUP)`).
@@ -44,10 +48,31 @@ public enum UpdateKitInfo {
         info?[installsFromZipKey] as? Bool ?? false
     }
 
+    /// The releases repository an Info.plist names, `owner/name`; nil when
+    /// it names none, only a build variable no build filled in
+    /// (`$(UPDATE_KIT_RELEASES_REPOSITORY)`), or anything but an owner and a
+    /// name of GitHub's letters (ASCII letters, digits, `-`, `_`, `.`).
+    public static func releasesRepository(in info: [String: Any]?) -> String? {
+        guard let repository = (info?[releasesRepositoryKey] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !repository.contains("$(") else {
+            return nil
+        }
+        let parts = repository.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts.allSatisfy(isRepositoryPart) else { return nil }
+        return repository
+    }
+
+    private static func isRepositoryPart(_ part: Substring) -> Bool {
+        !part.isEmpty && part != "." && part != ".."
+            && part.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "-_.".unicodeScalars.contains($0)) }
+    }
+
     /// The main bundle's app group.
     public static var mainAppGroup: String? { appGroup(in: Bundle.main.infoDictionary) }
     /// The main bundle's distributor bundle ids.
     public static var mainApplicationsBundleIDs: [String] { applicationsBundleIDs(in: Bundle.main.infoDictionary) }
     /// Whether the main bundle takes its build as its zip.
     public static var mainInstallsFromZip: Bool { installsFromZip(in: Bundle.main.infoDictionary) }
+    /// The main bundle's releases repository.
+    public static var mainReleasesRepository: String? { releasesRepository(in: Bundle.main.infoDictionary) }
 }

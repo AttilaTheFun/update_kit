@@ -106,4 +106,35 @@ final class UpdateSessionTests {
         #expect(await system.events.contains("open Applications"))
         #expect(await system.events.last == "terminate")
     }
+
+    /// A direct check of the app's releases writes the newer build it finds,
+    /// which the session's check then sees; found again, nothing is written.
+    @Test func aDirectCheckWritesANewerBuildOnce() async throws {
+        let session = session(platform: .macOS)
+        let line = """
+            {"file": "Visor.zip", "bundleID": "\(visor)", "platform": "macos", "version": "0.40.2", "buildNumber": "1", "variant": "Production"}
+            """
+        let github = FakeGitHub(releases: [.init(asset: 4)], builds: [4: [line]])
+        let checker = ReleaseChecker(repository: "owner/app", token: { "token" }, send: { await github.answer($0) })
+        #expect(try await session.checkReleases(checker))
+        guard case .available(let update) = try await session.check() else { Issue.record("no update"); return }
+        #expect(update.version == "0.40.2")
+        #expect(update.installURL == nil)
+        #expect(try await session.checkReleases(checker) == false)
+    }
+
+    /// Applications' newer build stands: a direct check finding an older one
+    /// writes nothing.
+    @Test func aDirectCheckNeverLowersApplicationsBuild() async throws {
+        let session = session(platform: .iOS)
+        try await session.store.setLatest([LatestBuild(bundleID: visor, version: "0.41.0", build: "1",
+                                                       installURL: URL(string: "itms-services://example"))])
+        let line = """
+            {"file": "Visor.ipa", "bundleID": "\(visor)", "platform": "ios", "version": "0.40.2", "buildNumber": "1", "variant": "Production"}
+            """
+        let github = FakeGitHub(releases: [.init(asset: 4)], builds: [4: [line]])
+        let checker = ReleaseChecker(repository: "owner/app", token: { "token" }, send: { await github.answer($0) })
+        #expect(try await session.checkReleases(checker) == false)
+        #expect(try await session.store.record(bundleID: visor)?.latestVersion == "0.41.0")
+    }
 }
