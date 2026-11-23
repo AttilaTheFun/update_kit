@@ -65,6 +65,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: swift build --build-tests
+      # The tests on the Mac too: the installer's on real signed apps (MacInstallTests, StayUpWatcherTests), which
+      # Linux can't run, beside the rest.
+      - run: swift test --skip-build
       # The scheme Xcode makes for the package, by name as it lists it.
       - run: |
           set -o pipefail
