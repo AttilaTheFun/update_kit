@@ -90,7 +90,8 @@ public final class OfferResponder {
     public func installing() async throws {
         guard let offer = try await store.offer(bundleID: app.bundleID),
               try await store.moveOffer(bundleID: offer.bundleID, version: offer.version, build: offer.build,
-                                        from: [.handedOver], to: .installing, bundle: offer.bundle) else { return }
+                                        from: [.handedOver], to: .installing, bundle: offer.bundle,
+                                        bundleSHA256: offer.bundleSHA256, bundleName: offer.bundleName) else { return }
         await system.databaseChanged()
     }
 
@@ -100,7 +101,7 @@ public final class OfferResponder {
         guard let offer = try await store.offer(bundleID: app.bundleID),
               try await store.moveOffer(bundleID: offer.bundleID, version: offer.version, build: offer.build,
                                         from: [.installMyself, .handedOver, .installing, .installed, .failed], to: .failed, note: note,
-                                        bundle: offer.bundle) else { return }
+                                        bundle: offer.bundle, bundleSHA256: offer.bundleSHA256, bundleName: offer.bundleName) else { return }
         await system.databaseChanged()
     }
 
@@ -116,7 +117,7 @@ public final class OfferResponder {
         if offer.state == .installed, offer.bundle != nil, app.appVersion < offer.appVersion {
             try await store.moveOffer(bundleID: offer.bundleID, version: offer.version, build: offer.build, from: [.installed],
                                       to: .failed, note: "\(app.appVersion) is running again after \(offer.appVersion) was installed",
-                                      bundle: offer.bundle)
+                                      bundle: offer.bundle, bundleSHA256: offer.bundleSHA256, bundleName: offer.bundleName)
             await system.databaseChanged()
             return
         }
@@ -124,11 +125,11 @@ public final class OfferResponder {
         guard states.contains(offer.state) else { return }
         if app.appVersion >= offer.appVersion {
             try await store.moveOffer(bundleID: offer.bundleID, version: offer.version, build: offer.build, from: states, to: .installed,
-                                      bundle: offer.bundle)
+                                      bundle: offer.bundle, bundleSHA256: offer.bundleSHA256, bundleName: offer.bundleName)
         } else if offer.state == .installing {
             try await store.moveOffer(bundleID: offer.bundleID, version: offer.version, build: offer.build, from: [.installing],
                                       to: .failed, note: "\(app.appVersion) is still running after installing \(offer.appVersion)",
-                                      bundle: offer.bundle)
+                                      bundle: offer.bundle, bundleSHA256: offer.bundleSHA256, bundleName: offer.bundleName)
         } else {
             return
         }

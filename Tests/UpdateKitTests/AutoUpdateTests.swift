@@ -96,6 +96,13 @@ final class AutoUpdateTests: XCTestCase {
         XCTAssertEqual(offer?.bundle, zip)
         XCTAssertEqual(offer?.bundleSHA256, sha)
         XCTAssertEqual(offer?.bundleName, "Visor")
+        // The app installing it keeps them, as it keeps the bundle.
+        try await responder(store, running: "0.67.0", system: FakeSystem()).installing()
+        let installing = try await store.offer(bundleID: visor)
+        XCTAssertEqual(installing?.state, .installing)
+        XCTAssertEqual(installing?.bundleSHA256, sha)
+        XCTAssertEqual(installing?.bundleName, "Visor")
+        try await store.moveOffer(bundleID: visor, version: "0.67.1", build: "1", from: [.installing], to: .handedOver, bundle: zip)
         // Moved on, the zip's figures go with it.
         try await store.moveOffer(bundleID: visor, version: "0.67.1", build: "1", from: [.handedOver], to: .failed, note: "refused")
         let failed = try await store.offer(bundleID: visor)
