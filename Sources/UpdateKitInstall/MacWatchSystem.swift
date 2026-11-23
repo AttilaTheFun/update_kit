@@ -30,7 +30,7 @@ public struct MacWatchSystem: WatchSystem {
     /// Written through its folder opened without following a link, into a file never followed either: a link the app
     /// put at either sends nothing anywhere.
     public func write(_ text: String, to path: String) throws {
-        let folder = open((path as NSString).deletingLastPathComponent, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        let folder = Darwin.open((path as NSString).deletingLastPathComponent, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard folder >= 0 else { throw MacBundleInstallSystem.Failure(description: MacBundleInstallSystem.errorText()) }
         defer { close(folder) }
         let file = openat(folder, (path as NSString).lastPathComponent, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0o600)
