@@ -12,8 +12,8 @@ public struct StayUpWatch: Sendable, Codable, Equatable {
     public var quitSeconds: TimeInterval
     /// How long the new build's process must find to start.
     public var startSeconds: TimeInterval
-    /// A server's: a URL the new build answers once it's up (any HTTP status counts; no answer doesn't), asked until
-    /// `firstAnswerSeconds`. Nil: running is enough.
+    /// A server's: a URL on this Mac (loopback) the new build answers once it's up (any HTTP status counts; no answer
+    /// doesn't), asked until `firstAnswerSeconds`. Nil: running is enough.
     public var healthURL: URL?
     public var firstAnswerSeconds: TimeInterval
     /// Whether the listener on the health URL's port, where it can be seen, must be the new build's process (so an
@@ -21,19 +21,12 @@ public struct StayUpWatch: Sendable, Codable, Equatable {
     public var listenerMustBeWatched: Bool
     /// How long it must then stay running: "stayed up".
     public var seconds: TimeInterval
-    /// The lock held for the whole watch (`WatchLock`): a line `<pid> <started-epoch-seconds>`, counting only while
-    /// that pid is alive.
-    public var lockPath: String
-    /// Where the outcome goes (`WatchNote`, JSON), for the app's next launch.
-    public var notePath: String
-    /// The install's policy, for the restore's checks: the service's own, set by it (`StayUpWatcher.checked`), whatever
-    /// the app sent.
-    public var policy: InstallPolicy?
 
+    /// The lock (held for the whole watch: `WatchLock`) and the note (the outcome, `WatchNote`, for the app's next
+    /// launch) are the policy's (`watchLockPath`, `watchNotePath`), never the app's to choose.
     public init(install: InstallResult, bundleID: String, quittingPID: Int32, quitSeconds: TimeInterval = 60,
                 startSeconds: TimeInterval = 30, healthURL: URL? = nil, firstAnswerSeconds: TimeInterval = 600,
-                listenerMustBeWatched: Bool = false, seconds: TimeInterval = 120, lockPath: String, notePath: String,
-                policy: InstallPolicy? = nil) {
+                listenerMustBeWatched: Bool = false, seconds: TimeInterval = 120) {
         self.install = install
         self.bundleID = bundleID
         self.quittingPID = quittingPID
@@ -43,9 +36,6 @@ public struct StayUpWatch: Sendable, Codable, Equatable {
         self.firstAnswerSeconds = firstAnswerSeconds
         self.listenerMustBeWatched = listenerMustBeWatched
         self.seconds = seconds
-        self.lockPath = lockPath
-        self.notePath = notePath
-        self.policy = policy
     }
 }
 
@@ -75,9 +65,8 @@ public struct WatchNote: Sendable, Codable, Equatable {
         self.at = at
     }
 
-    /// The note at `path`, if one is there and readable.
-    public static func read(_ path: String) -> WatchNote? {
-        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+    /// A note's JSON read, if it is one.
+    public static func decoded(_ data: Data) -> WatchNote? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
         return try? decoder.decode(WatchNote.self, from: data)
@@ -102,8 +91,12 @@ public protocol WatchSystem {
     func isAlive(_ pid: Int32) -> Bool
     /// SIGTERM sent to it.
     func terminate(_ pid: Int32)
+    /// SIGKILL sent to it.
+    func kill(_ pid: Int32)
+    /// Its executable's path (`proc_pidpath`), nil when it can't be read.
+    func executablePath(of pid: Int32) -> String?
     func read(_ path: String) -> String?
-    /// `text` written to `path` whole (replacing it in one rename).
+    /// `text` written to `path` whole, never through a link (its folder or itself).
     func write(_ text: String, to path: String) throws
     func remove(_ path: String)
     /// The app at `path` opened (LaunchServices): whether it was.
@@ -112,6 +105,6 @@ public protocol WatchSystem {
     func pids(runningExecutable path: String) -> [Int32]
     /// Whether anything answers `url` over HTTP, any status.
     func answers(_ url: URL) -> Bool
-    /// The process listening on `url`'s port, where it can be seen; nil when it can't.
-    func listenerPID(of url: URL) -> Int32?
+    /// The processes listening on `url`'s port, where they can be seen (none when they can't).
+    func listenerPIDs(of url: URL) -> [Int32]
 }

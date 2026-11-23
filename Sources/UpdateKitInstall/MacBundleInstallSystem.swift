@@ -8,25 +8,23 @@ import Security
 /// build is made of was written by a sandboxed process: the copying copyfile's (data alone), the unpacking ditto's with
 /// --noqtn, the checks SecStaticCode's, the swap renamex_np's.
 ///
-/// The signature: valid (strict, every architecture, nested code) and signed by the service's own team; and, wherever
-/// the app around the service passes it (a release), with that team's Developer ID Application certificate and
-/// notarized. A service with no team at all is an ad hoc test build and installs only builds with no team either, so
-/// the whole path can be exercised in a test VM; a published app never is one (notarization refuses code that isn't
-/// its team's Developer ID's).
+/// The signature (the policy's `signing`): valid (strict, every architecture, nested code) and meeting a requirement
+/// that always names Apple's anchor and the service's own team (`certificate leaf[subject.OU]`), so a self-signed
+/// certificate claiming the team doesn't pass; by default also the team's Developer ID Application certificate and
+/// notarization, refused when notarization can't be checked. A service with no team (an ad hoc test build) installs
+/// only with `adHocForTests`, which only a debug build of this library honours.
 public struct MacBundleInstallSystem: BundleInstallSystem {
     public struct Failure: Error, CustomStringConvertible {
         public let description: String
     }
 
     public let ownFolder: String
-    /// The app the service is inside (`Contents/XPCServices/<service>.xpc`, three folders up), whose signature says
-    /// whether builds must be its team's Developer ID's and notarized.
-    public let hostApp: URL?
 
-    /// `ownFolder`: the service's own (unsandboxed, so the user's) temporary folder's `<name>`, by default.
-    public init(ownFolder: String? = nil, hostApp: URL? = MacBundleInstallSystem.enclosingApp()) {
-        self.ownFolder = ownFolder ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("UpdateKitInstall")
-        self.hostApp = hostApp
+    /// `ownFolder`: by default this service's own, by its bundle id, in the user's temporary folder (the service isn't
+    /// sandboxed): never another service's.
+    public init(ownFolder: String? = nil) {
+        let service = Bundle.main.bundleIdentifier ?? "service-\(getuid())"
+        self.ownFolder = ownFolder ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("UpdateKitInstall-\(service)")
     }
 
     /// The app around this process's bundle, when it's a service inside one.
@@ -43,6 +41,11 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
 
     public func isFile(_ path: String) -> Bool {
         (try? FileManager.default.attributesOfItem(atPath: path))?[.type] as? FileAttributeType == .typeRegular
+    }
+
+    public func isRealFolder(_ path: String) -> Bool {
+        var status = stat()
+        return lstat(path, &status) == 0 && (status.st_mode & S_IFMT) == S_IFDIR
     }
 
     public func exists(_ path: String) -> Bool {
@@ -64,6 +67,10 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    public func createFolder(_ path: String) throws {
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    }
+
     public func makeFolder() throws -> String {
         let manager = FileManager.default
         try manager.createDirectory(atPath: ownFolder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -72,13 +79,55 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
         return folder
     }
 
-    public func copy(zip: String, into folder: String) throws -> String {
+    public func copy(zip: String, into folder: String, within folders: [String], maxBytes: Int) throws -> String {
+        // One opening of it, never through a link; then what it is, how big, and where the file opened really is.
+        let source = open(zip, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard source >= 0 else { throw Failure(description: Self.errorText()) }
+        defer { close(source) }
+        var status = stat()
+        guard fstat(source, &status) == 0, (status.st_mode & S_IFMT) == S_IFREG else {
+            throw InstallRefusal(.noFile, "The build's file isn't a plain file.")
+        }
+        guard Int(status.st_size) <= maxBytes else { throw InstallRefusal(.tooLarge, "The build's file is larger than this installer takes.") }
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(source, F_GETPATH, &buffer) != -1, case let opened = Self.path(of: buffer),
+              folders.contains(where: { BundleInstall.isInside(opened, $0) }) else {
+            throw InstallRefusal(.outsideFolders, "The build's file isn't in a folder this installer takes builds from.")
+        }
         let copy = "\(folder)/build.zip"
-        // The data alone (no extended attribute, so no quarantine either), never through a link, never over a file.
-        let flags = copyfile_flags_t(COPYFILE_DATA) | copyfile_flags_t(COPYFILE_NOFOLLOW) | copyfile_flags_t(COPYFILE_EXCL)
-        guard copyfile(zip, copy, nil, flags) == 0 else { throw Failure(description: String(cString: strerror(errno))) }
+        let target = open(copy, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard target >= 0 else { throw Failure(description: Self.errorText()) }
+        defer { close(target) }
+        // The data alone (no extended attribute, so no quarantine either).
+        guard fcopyfile(source, target, nil, copyfile_flags_t(COPYFILE_DATA)) == 0 else { throw Failure(description: Self.errorText()) }
         return copy
     }
+
+    public func size(of path: String) -> Int {
+        var total = 0
+        guard let walk = FileManager.default.enumerator(atPath: path) else { return 0 }
+        for case let relative as String in walk {
+            var status = stat()
+            if lstat("\(path)/\(relative)", &status) == 0 { total += Int(status.st_size) }
+        }
+        return total
+    }
+
+    public func read(_ path: String) -> Data? {
+        let file = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard file >= 0 else { return nil }
+        return FileHandle(fileDescriptor: file, closeOnDealloc: true).readDataToEndOfFile()
+    }
+
+    public func write(_ data: Data, to path: String) throws {
+        let file = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard file >= 0 else { throw Failure(description: Self.errorText()) }
+        let handle = FileHandle(fileDescriptor: file, closeOnDealloc: true)
+        try handle.write(contentsOf: data)
+    }
+
+    /// What errno says.
+    static func errorText(_ code: Int32 = errno) -> String { String(cString: strerror(code)) }
 
     public func unpack(zip: String, into folder: String, timeLimit: TimeInterval) throws {
         let result = Self.run("/usr/bin/ditto", ["-x", "-k", "--noqtn", zip, folder], timeLimit: timeLimit)
@@ -100,7 +149,7 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
         return plist[key] as? String
     }
 
-    public func signatureRefusal(ofApp path: String) -> String? {
+    public func signatureRefusal(ofApp path: String, signing: InstallPolicy.Signing) -> String? {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [], &code) == errSecSuccess, let code else {
             return "The build's signature cannot be read."
@@ -108,25 +157,30 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
         let status = SecStaticCodeCheckValidity(code, flags, nil)
         guard status == errSecSuccess else { return "The build's signature is not valid (\(status))." }
-        let team = Self.teamID(of: code)
-        let own: String
-        switch Self.ownSigning {
-        case .unreadable:
+        switch (Self.ownSigning, signing) {
+        case (.unreadable, _):
             return "The installer can't read its own signature, so it installs nothing."
-        case .adHoc:
-            // An ad hoc test build of the service (never a published one: above): ad hoc builds alone.
-            guard let team else { return nil }
-            return "This installer is an ad hoc test build: it installs only builds with no team, not team \(team)'s."
-        case .team(let mine):
-            own = mine
-        }
-        guard team == own else { return "The build is not signed by this installer's team." }
-        if let requirement = Self.distribution(team: own), let hostApp, Self.passes(hostApp, requirement) {
-            guard SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess else {
-                return "The build isn't signed with its team's Developer ID and notarized."
+        case (.adHoc, .adHocForTests):
+            #if DEBUG
+            // A test build of the service, in a test VM: ad hoc builds alone.
+            return Self.teamID(of: code) == nil ? nil : "This installer is an ad hoc test build: it installs only builds with no team."
+            #else
+            return "Ad hoc builds are installed only by a debug build of the installer."
+            #endif
+        case (.adHoc, _):
+            return "The installer has no team of its own, so it installs nothing."
+        case (.team, .adHocForTests):
+            return "This installer is its team's: it installs no ad hoc build."
+        case (.team(let own), let signing):
+            guard let requirement = Self.requirement(team: own, developerID: signing == .developerID) else {
+                return "The installer couldn't make its signature requirement."
             }
+            guard SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess else {
+                return signing == .developerID ? "The build isn't signed with its team's Developer ID and notarized."
+                    : "The build isn't signed by this installer's team."
+            }
+            return nil
         }
-        return nil
     }
 
     public func removeQuarantine(under path: String) throws {
@@ -136,14 +190,15 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
             for case let relative as String in walk { paths.append("\(path)/\(relative)") }
         }
         for item in paths where removexattr(item, "com.apple.quarantine", XATTR_NOFOLLOW) != 0 && errno != ENOATTR {
-            throw Failure(description: "\(item): \(String(cString: strerror(errno)))")
+            throw Failure(description: "\(item): \(Self.errorText())")
         }
     }
 
     public func swap(_ new: String, into destination: String) throws -> String? {
-        func failure(_ code: Int32) -> Failure { Failure(description: String(cString: strerror(code))) }
+        func failure(_ code: Int32) -> Failure { Failure(description: Self.errorText(code)) }
         guard exists(destination) else {
-            if rename(new, destination) == 0 { return nil }
+            // Never over anything that appeared meanwhile.
+            if renamex_np(new, destination, UInt32(RENAME_EXCL)) == 0 { return nil }
             guard errno == EXDEV else { throw failure(errno) }
             try FileManager.default.copyItem(atPath: new, toPath: destination)
             return nil
@@ -174,9 +229,9 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
 
     static let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
-    public func register(app path: String) { _ = Self.run(Self.lsregister, ["-f", path]) }
+    public func register(app path: String) { _ = Self.run(Self.lsregister, ["-f", path], timeLimit: 60) }
 
-    public func unregister(app path: String) { _ = Self.run(Self.lsregister, ["-u", path]) }
+    public func unregister(app path: String) { _ = Self.run(Self.lsregister, ["-u", path], timeLimit: 60) }
 
     public func isInUse(_ path: String) -> Bool {
         Self.runningExecutables().contains { $0.hasPrefix(path + "/") }
@@ -284,21 +339,20 @@ public struct MacBundleInstallSystem: BundleInstallSystem {
         return team
     }
 
-    /// A release's signature: Apple's chain, a Developer ID Application certificate (its marker extension) of
-    /// `team`'s, and a notarization ticket.
-    static func distribution(team: String) -> SecRequirement? {
-        let text = "anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists "
-            + "and certificate leaf[subject.OU] = \"\(team)\" and notarized"
+    /// The requirement a build meets: Apple's chain and a certificate of `team`'s; with `developerID`, a Developer ID
+    /// Application certificate (its marker extension) and a notarization ticket too.
+    static func requirement(team: String, developerID: Bool) -> SecRequirement? {
+        var text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
+        if developerID { text += " and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and notarized" }
         var requirement: SecRequirement?
         guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess else { return nil }
         return requirement
     }
 
-    /// Whether the app at `url` meets `requirement`.
-    static func passes(_ url: URL, _ requirement: SecRequirement) -> Bool {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return false }
-        return SecStaticCodeCheckValidity(code, [], requirement) == errSecSuccess
+    /// This service's team, nil for an ad hoc build (or one whose signature can't be read).
+    public static var ownTeam: String? {
+        if case .team(let team) = ownSigning { return team }
+        return nil
     }
 }
 #endif
